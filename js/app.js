@@ -4,7 +4,7 @@
 const STORE_KEY = 'ficha-rpg:v1';
 const UI_KEY = 'ficha-rpg:ui';
 let db = { sheets: {}, open: [], active: null };
-let ui = { sub: {}, rollMode: 'normal', library: false, showFuture: false, preview: false };
+let ui = { sub: {}, rollMode: 'normal', library: false, showFuture: false, preview: false, libQ: '', libSel: new Set() };
 
 const GEAR = [
   ['Aljava', 1], ['Algemas', 6], ['Arpéu', 4], ['Bolsa', 1], ['Cantil', 5], ['Corda (15 m)', 5], ['Corrente (3 m)', 10],
@@ -167,12 +167,91 @@ function renderHome() {
       <div class="row gap"><button class="btn primary big" data-action="newSheet">＋ Criar nova ficha</button>
       <button class="btn big" data-action="importSheet">Importar ficha (.json)</button></div>
     </div>
-    ${list.length ? `<h2>Suas fichas</h2><div class="lib-grid">${list.map(libCard).join('')}</div>` : ''}
+    ${list.length && !ui.library ? `<h2>Suas fichas</h2>${renderLibBody()}` : ''}
   </section>`;
 }
 
+// ---------------------------------------------------------------- Biblioteca: busca, seleção, exportação em massa
+const normTxt = (t) => String(t || '').toLowerCase().normalize('NFD').replace(/[\u0300-\u036f]/g, '');
+function libSearchText(s) {
+  const cls = CLASS[s.classId], sp = SPECIE[s.species], bg = BACKGROUND[s.background];
+  const sub = cls && cls.subclasses.find(x => x.id === s.subclass);
+  return normTxt([s.name, s.player, cls && cls.name, sp && sp.name, sub && sub.name, bg && bg.name].filter(Boolean).join(' '));
+}
+function libVisible() {
+  const q = normTxt(ui.libQ).trim();
+  return Object.values(db.sheets).sort((a, b) => b.updatedAt - a.updatedAt).filter(s => !q || libSearchText(s).includes(q));
+}
+function libPrune() { for (const id of [...ui.libSel]) if (!db.sheets[id]) ui.libSel.delete(id); }
+function libBarHtml() {
+  libPrune();
+  const n = ui.libSel.size, total = Object.keys(db.sheets).length, vis = libVisible().length;
+  return `<span class="small muted">${n ? `<b class="pending">${n}</b> selecionada(s) · ` : ''}${vis === total ? `${total} ficha(s)` : `${vis} de ${total} ficha(s)`}</span>
+    <button class="btn sm" data-action="libSelectAll" ${vis ? '' : 'disabled'}>Selecionar todas (visíveis)</button>
+    <button class="btn sm" data-action="libClear" ${n ? '' : 'disabled'}>Limpar seleção</button>
+    <button class="btn sm primary" data-action="exportSelected" ${n ? '' : 'disabled'}>Exportar selecionadas (${n})</button>
+    <button class="btn sm danger" data-action="deleteSelected" ${n ? '' : 'disabled'}>Excluir selecionadas (${n})</button>
+    <span class="lib-bar-sep"></span>
+    <button class="btn sm" data-action="exportAll" ${total ? '' : 'disabled'}>Exportar todas</button>
+    <button class="btn sm" data-action="importSheet">Importar .json</button>`;
+}
+function libGridHtml() {
+  const list = libVisible();
+  if (list.length) return list.map(libCard).join('');
+  return Object.keys(db.sheets).length ? `<p class="muted">Nenhuma ficha encontrada para "${esc(ui.libQ)}".</p>` : '<p class="muted">Nenhuma ficha ainda.</p>';
+}
+function renderLibBody() {
+  return `<div class="lib-body">
+    <div class="lib-toolbar">
+      <input id="libSearch" type="search" placeholder="Buscar por nome, jogador, classe, espécie…" value="${esc(ui.libQ)}" autocomplete="off">
+      <div class="lib-bar row gap wrap">${libBarHtml()}</div>
+    </div>
+    <div class="lib-grid" id="libGrid">${libGridHtml()}</div>
+  </div>`;
+}
+function refreshLibrary() {
+  document.querySelectorAll('.lib-bar').forEach(el => { el.innerHTML = libBarHtml(); });
+  document.querySelectorAll('#libGrid').forEach(el => { el.innerHTML = libGridHtml(); });
+}
+function localDate() {
+  const d = new Date(); const p = (n) => String(n).padStart(2, '0');
+  return `${d.getFullYear()}-${p(d.getMonth() + 1)}-${p(d.getDate())}`;
+}
+function exportBulk(sheets) {
+  if (!sheets.length) return;
+  download(`grimorio-fichas-${localDate()}.json`, { app: 'grimorio-fichas', version: 1, exportedAt: new Date().toISOString(), sheets });
+  toast(`${sheets.length} ficha(s) exportada(s) em um arquivo.`, 'good');
+}
+
+// Importa um ou mais arquivos: formato em massa, array de fichas ou ficha avulsa.
+async function importFiles(files) {
+  const c = { imported: 0, updated: 0, skipped: 0, invalid: 0 };
+  let lastId = null;
+  for (const file of files) {
+    let data;
+    try { data = JSON.parse(await file.text()); } catch (e) { c.invalid++; continue; }
+    const list = data && !Array.isArray(data) && Array.isArray(data.sheets) ? data.sheets : Array.isArray(data) ? data : [data];
+    for (const raw of list) {
+      if (!raw || typeof raw !== 'object' || Array.isArray(raw) || !raw.abilities || typeof raw.abilities !== 'object') { c.invalid++; continue; }
+      const sh = migrate(raw);
+      if (!sh.id) sh.id = uid();
+      const cur = db.sheets[sh.id];
+      if (!cur) { db.sheets[sh.id] = sh; c.imported++; lastId = sh.id; }
+      else if ((+sh.updatedAt || 0) > (+cur.updatedAt || 0)) { db.sheets[sh.id] = sh; c.updated++; lastId = sh.id; }
+      else c.skipped++;
+    }
+  }
+  if (c.imported + c.updated === 1 && lastId) openSheet(lastId);
+  save(); render();
+  toast(`${c.imported} importada(s), ${c.updated} atualizada(s), ${c.skipped} ignorada(s) (já atualizadas), ${c.invalid} inválida(s)`,
+    c.imported + c.updated ? 'good' : c.invalid ? 'bad' : '', 6500);
+  return c;
+}
+
 function libCard(s) {
-  return `<div class="lib-card">
+  const sel = ui.libSel.has(s.id);
+  return `<div class="lib-card${sel ? ' sel' : ''}">
+    <label class="lib-check" title="Selecionar"><input type="checkbox" data-action="libToggle" data-id="${s.id}" ${sel ? 'checked' : ''} aria-label="Selecionar ${esc(s.name || 'Sem nome')}"></label>
     <div class="lib-av">${s.photo ? `<img src="${s.photo}" alt="">` : esc((s.name || '?')[0].toUpperCase())}</div>
     <div class="lib-info"><b>${esc(s.name || 'Sem nome')}</b><small>${esc(summary(s))}</small><small class="muted">Editada ${new Date(s.updatedAt).toLocaleString('pt-BR')}</small></div>
     <div class="lib-actions">
@@ -185,12 +264,11 @@ function libCard(s) {
 }
 
 function renderLibrary() {
-  const list = Object.values(db.sheets).sort((a, b) => b.updatedAt - a.updatedAt);
   return `<div class="modal-bg" data-action="toggleLibrary"></div>
   <div class="modal">
     <div class="modal-head"><h2>Todas as fichas</h2><button class="btn sm" data-action="toggleLibrary">Fechar</button></div>
-    <div class="row gap wrap"><button class="btn primary" data-action="newSheet">＋ Nova ficha</button><button class="btn" data-action="importSheet">Importar .json</button></div>
-    <div class="lib-grid">${list.map(libCard).join('') || '<p class="muted">Nenhuma ficha ainda.</p>'}</div>
+    <div class="row gap wrap"><button class="btn primary" data-action="newSheet">＋ Nova ficha</button></div>
+    ${renderLibBody()}
   </div>`;
 }
 
@@ -1245,9 +1323,29 @@ const actions = {
   toggleLibrary() { ui.library = !ui.library; },
   togglePreview() { ui.preview = !ui.preview; window.scrollTo(0, 0); },
   printSheet() { window.print(); return false; },
+  libToggle(el) {
+    const id = el.dataset.id;
+    ui.libSel.has(id) ? ui.libSel.delete(id) : ui.libSel.add(id);
+    refreshLibrary(); return false;
+  },
+  libSelectAll() { libVisible().forEach(s => ui.libSel.add(s.id)); refreshLibrary(); return false; },
+  libClear() { ui.libSel.clear(); refreshLibrary(); return false; },
+  exportSelected() { libPrune(); exportBulk([...ui.libSel].map(id => db.sheets[id])); return false; },
+  exportAll() { exportBulk(Object.values(db.sheets).sort((a, b) => b.updatedAt - a.updatedAt)); return false; },
+  deleteSelected() {
+    libPrune();
+    const ids = [...ui.libSel]; if (!ids.length) return false;
+    if (!confirm(`Excluir ${ids.length} ficha(s) permanentemente? Isso não pode ser desfeito.`)) return false;
+    for (const id of ids) delete db.sheets[id];
+    db.open = db.open.filter(x => db.sheets[x]);
+    if (!db.sheets[db.active]) db.active = db.open[0] || null;
+    ui.libSel.clear(); save();
+    toast(`${ids.length} ficha(s) excluída(s).`, 'good');
+  },
   deleteSheet(el) {
     const s = db.sheets[el.dataset.id];
     if (!confirm(`Excluir a ficha "${s.name || 'Sem nome'}" permanentemente?`)) return false;
+    ui.libSel.delete(s.id);
     delete db.sheets[s.id]; db.open = db.open.filter(x => x !== s.id);
     if (db.active === s.id) db.active = db.open[0] || null;
     save();
@@ -1559,6 +1657,7 @@ document.addEventListener('click', (ev) => {
 
 document.addEventListener('input', (ev) => {
   const el = ev.target;
+  if (el.id === 'libSearch') { ui.libQ = el.value; refreshLibrary(); return; }
   const s = active();
   if (!s) return;
   if (el.id === 'spellSearch') { ui.spellFilter.q = el.value; refreshCatalog(); return; }
@@ -1655,24 +1754,8 @@ function init() {
     ev.target.value = '';
   });
   $('#importFile').addEventListener('change', (ev) => {
-    const f = ev.target.files[0]; if (!f) return;
-    const r = new FileReader();
-    r.onload = () => {
-      try {
-        const data = JSON.parse(r.result);
-        const arr = Array.isArray(data) ? data : [data];
-        let last = null;
-        for (const raw of arr) {
-          if (!raw || typeof raw !== 'object' || !raw.abilities) throw new Error('formato');
-          const s = migrate(raw);
-          if (db.sheets[s.id]) s.id = uid();
-          db.sheets[s.id] = s; last = s.id;
-        }
-        if (last) openSheet(last);
-        save(); render(); toast(`${arr.length} ficha(s) importada(s).`, 'good');
-      } catch (e) { toast('Arquivo inválido: não parece uma ficha exportada.', 'bad'); }
-    };
-    r.readAsText(f); ev.target.value = '';
+    const files = [...ev.target.files]; ev.target.value = '';
+    if (files.length) importFiles(files);
   });
   window.addEventListener('beforeunload', () => save(true));
   render();

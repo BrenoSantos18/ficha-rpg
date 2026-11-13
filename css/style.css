@@ -119,6 +119,15 @@ main { max-width: 1280px; margin: 0 auto; padding: 16px; }
 .lib-av img { width: 100%; height: 100%; object-fit: cover; }
 .lib-info { display: flex; flex-direction: column; min-width: 0; }
 .lib-actions { display: flex; gap: 6px; flex-wrap: wrap; }
+.lib-card { position: relative; }
+.lib-card.sel { border-color: var(--gold); background: #2e2618; }
+.lib-check { position: absolute; top: 8px; right: 8px; cursor: pointer; padding: 2px; }
+.lib-check input { width: 18px; height: 18px; cursor: pointer; }
+.lib-info { padding-right: 26px; }
+.lib-toolbar { display: flex; flex-direction: column; gap: 8px; margin-top: 12px; }
+#libSearch { width: 100%; max-width: 520px; padding: 8px 12px; font-size: 15px; }
+.lib-bar { align-items: center; }
+.lib-bar-sep { flex: 1; }
 
 /* Modal */
 #library[hidden] { display: none; }
