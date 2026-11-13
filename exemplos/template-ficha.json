@@ -1,0 +1,178 @@
+{
+  "app": "grimorio-fichas",
+  "version": 1,
+  "exportedAt": "",
+  "sheets": [
+    {
+      "id": "",
+      "createdAt": 0,
+      "updatedAt": 0,
+      "name": "",
+      "player": "",
+      "photo": "",
+      "level": 0,
+      "xp": 0,
+      "alignment": "",
+      "species": "",
+      "speciesChoices": {},
+      "size": "",
+      "background": "",
+      "bgMode": "",
+      "bg2": "",
+      "bg1": "",
+      "classId": "",
+      "subclass": "",
+      "classChoices": {},
+      "classSkills": [],
+      "abilityMethod": "",
+      "abilities": {
+        "str": 0,
+        "dex": 0,
+        "con": 0,
+        "int": 0,
+        "wis": 0,
+        "cha": 0
+      },
+      "abilityExtra": {
+        "str": 0,
+        "dex": 0,
+        "con": 0,
+        "int": 0,
+        "wis": 0,
+        "cha": 0
+      },
+      "saveProf": {},
+      "saveBonus": 0,
+      "skillProf": {},
+      "extraSkills": 0,
+      "extraExpertise": 0,
+      "hp": {
+        "current": null,
+        "temp": 0,
+        "maxOverride": null,
+        "bonus": 0
+      },
+      "hitDiceUsed": 0,
+      "deathSaves": {
+        "s": 0,
+        "f": 0
+      },
+      "exhaustion": 0,
+      "inspiration": false,
+      "conditions": [],
+      "armor": "",
+      "shield": false,
+      "acBonus": 0,
+      "speedBonus": 0,
+      "initBonus": 0,
+      "attacks": [
+        {
+          "id": "",
+          "weaponId": "",
+          "name": "",
+          "ability": "",
+          "prof": "",
+          "magic": 0,
+          "hitBonus": 0,
+          "dmgBonus": 0,
+          "extraDmg": "",
+          "versatile": false,
+          "dmg": "",
+          "dtype": ""
+        }
+      ],
+      "mastery": {},
+      "spellAbility": "",
+      "spells": [
+        {
+          "id": "",
+          "cat": "",
+          "source": "",
+          "name": "",
+          "level": 0,
+          "school": "",
+          "time": "",
+          "range": "",
+          "dur": "",
+          "conc": false,
+          "ritual": false,
+          "prepared": false,
+          "notes": ""
+        }
+      ],
+      "slotsUsed": [
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0
+      ],
+      "pactUsed": 0,
+      "resUsed": {},
+      "customRes": [
+        {
+          "id": "",
+          "name": "",
+          "max": 0,
+          "reset": ""
+        }
+      ],
+      "inventory": [
+        {
+          "id": "",
+          "name": "",
+          "weaponId": "",
+          "qty": 0,
+          "weight": 0,
+          "equipped": false,
+          "notes": ""
+        }
+      ],
+      "coins": {
+        "pc": 0,
+        "pp": 0,
+        "pe": 0,
+        "po": 0,
+        "pl": 0
+      },
+      "feats": [
+        {
+          "id": "",
+          "featId": "",
+          "note": "",
+          "name": "",
+          "desc": ""
+        }
+      ],
+      "languages": [
+        ""
+      ],
+      "toolProfs": "",
+      "otherProfs": "",
+      "bio": {
+        "age": "",
+        "height": "",
+        "weight": "",
+        "eyes": "",
+        "hair": "",
+        "skin": "",
+        "gender": "",
+        "faith": "",
+        "appearance": "",
+        "personality": "",
+        "ideals": "",
+        "bonds": "",
+        "flaws": "",
+        "backstory": "",
+        "allies": "",
+        "notes": ""
+      },
+      "equipAdded": {}
+    }
+  ]
+}

@@ -44,6 +44,11 @@ function migrate(s) {
   for (const k of Object.keys(base)) if (s[k] === undefined) s[k] = base[k];
   for (const k of ['abilities', 'abilityExtra', 'hp', 'deathSaves', 'coins', 'bio']) s[k] = Object.assign({}, base[k], s[k]);
   while (s.slotsUsed.length < 10) s.slotsUsed.push(0);
+  // Resumos de magia antigos (que repetiam dano/área) viram o resumo novo, se o jogador não os editou
+  if (typeof SPELL !== 'undefined') for (const sp of s.spells || []) {
+    const c = sp.cat && SPELL[sp.cat];
+    if (c && c.old && sp.notes === c.old) sp.notes = c.sum;
+  }
   return s;
 }
 

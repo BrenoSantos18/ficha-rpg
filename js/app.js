@@ -136,6 +136,7 @@ function render() {
   const main = $('#main');
   const s = active();
   main.innerHTML = s ? renderSheet(s) : renderHome();
+  renderLightbox(s);
   $('#library').innerHTML = ui.library ? renderLibrary() : '';
   $('#library').hidden = !ui.library;
 
@@ -144,6 +145,22 @@ function render() {
     const el = $(focusSel);
     if (el) { el.focus({ preventScroll: true }); if (selStart != null) try { el.setSelectionRange(selStart, selStart); } catch (e) { /* ignore */ } }
   }
+}
+
+// Foto expandida em tela cheia, com opções no rodapé
+function renderLightbox(s) {
+  let lb = $('#lightbox');
+  if (!lb) { lb = document.createElement('div'); lb.id = 'lightbox'; document.body.appendChild(lb); }
+  const show = ui.photoView && s && s.photo;
+  lb.hidden = !show;
+  lb.innerHTML = show ? `<div class="lb-bg" data-action="closePhoto"></div>
+    <figure class="lb-fig"><img src="${s.photo}" alt="Retrato de ${esc(s.name || 'personagem')}"><figcaption>${esc(s.name || 'Sem nome')}</figcaption></figure>
+    <div class="lb-bar">
+      <button class="btn primary" data-action="photoChange">Trocar foto</button>
+      <button class="btn danger" data-action="photoRemove">Remover</button>
+      <button class="btn" data-action="closePhoto">Fechar</button>
+    </div>` : '';
+  document.body.classList.toggle('no-scroll', !!show);
 }
 
 function renderHeader() {
@@ -287,9 +304,8 @@ function renderSheet(s) {
 
   return `
   <section class="hero card">
-    <div class="photo" data-action="photoPick" title="Clique para escolher uma foto">
+    <div class="photo" data-action="photoPick" title="${s.photo ? 'Ver foto' : 'Escolher uma foto'}" role="button" tabindex="0">
       ${s.photo ? `<img src="${s.photo}" alt="Retrato">` : '<span>＋ Foto</span>'}
-      ${s.photo ? '<button class="photo-x" data-action="photoRemove" title="Remover foto">×</button>' : ''}
     </div>
     <div class="hero-main">
       <input class="name-input" data-bind="name" value="${esc(s.name)}" placeholder="Nome do personagem">
@@ -410,7 +426,7 @@ function renderPreview(s, d) {
     s.spells.forEach(sp => byLvl[Math.min(9, Math.max(0, +sp.level || 0))].push(sp));
     const list = byLvl.map((arr, l) => arr.length ? `<div class="pv-spell-lvl"><h4>${l === 0 ? 'Truques' : l + 'º nível'}</h4>${arr.map(sp =>
       `<div class="pv-spell${l > 0 && !sp.prepared ? ' unprep' : ''}" data-myspell="${sp.id}">${l > 0 ? (sp.prepared ? '●' : '○') : '✦'} ${esc(sp.name)}${sp.conc ? ' <span class="badge">C</span>' : ''}${sp.ritual ? ' <span class="badge">R</span>' : ''}
-        ${mechLine(mecOf(sp)) ? `<small class="mec-line"> — ${esc(mechLine(mecOf(sp)))}</small>` : ''}</div>`).join('')}</div>` : '').join('');
+        ${spellInfoHtml(sp)}</div>`).join('')}</div>` : '').join('');
     spellHtml = sec('Magias', top + (slots ? `<div class="slots pv-slots">${slots}</div>` : '') + (list ? `<div class="pv-spells">${list}</div>` : '<p class="muted small">Nenhuma magia adicionada.</p>'), 'span2');
   }
 
@@ -439,7 +455,7 @@ function renderPreview(s, d) {
   </div>
 
   <header class="pv-head card">
-    <div class="pv-photo">${s.photo ? `<img src="${s.photo}" alt="Retrato">` : `<span>${esc((s.name || '?')[0].toUpperCase())}</span>`}</div>
+    <div class="pv-photo" data-action="photoPick" role="button" tabindex="0" title="${s.photo ? 'Ver foto' : 'Escolher uma foto'}">${s.photo ? `<img src="${s.photo}" alt="Retrato">` : `<span>${esc((s.name || '?')[0].toUpperCase())}</span>`}</div>
     <div class="pv-id">
       <h1>${esc(s.name || 'Sem nome')}</h1>
       <div class="pv-sub">${ident || 'Personagem incompleto'}</div>
@@ -462,7 +478,7 @@ function renderPreview(s, d) {
       ${sec('Atributos', `<div class="pv-abs">${abilities}</div>`)}
       ${sec('Sentidos e defesas', line('Visão no escuro', d.darkvision ? ftToM(d.darkvision) + ' m' : '—') + line('Intuição passiva', d.passive.insight) + line('Investigação passiva', d.passive.investigation)
         + line('Tamanho', esc(s.size || d.sp.size)) + line('Resistências', [...new Set(d.resist)].join(', ')) + line('Armadura', esc(d.acNote) + (s.shield ? ' + Escudo' : '')))}
-      ${sec('Proficiências', line('Armaduras', armorList) + line('Armas', weaponList) + line('Ferramentas', [d.bg.tool, d.cls.tools, s.toolProfs].filter(Boolean).map(esc).join('; '))
+      ${sec('Proficiências', line('Armaduras', armorList) + line('Armas', weaponList) + line('Ferramentas', [...new Set([d.bg.tool, d.cls.tools, s.toolProfs].filter(Boolean))].map(esc).join('; '))
         + line('Idiomas', [...s.languages, ...d.autoLangs].map(esc).join(', ')))}
     </div>
     <div class="pv-col">
@@ -652,7 +668,7 @@ function renderMain(s, d) {
     </div>`;
   }).join('');
 
-  const toolsAuto = [d.bg.tool, d.cls.tools].filter(Boolean);
+  const toolsAuto = [...new Set([d.bg.tool, d.cls.tools].filter(Boolean))];
   const armorList = [...d.armorTrain].map(a => a === 'shield' ? 'Escudos' : ARMOR_TYPE_NAME[a]).join(', ') || 'Nenhuma';
   const weaponList = [...d.weaponTrain].map(w => ({ simple: 'Simples', martial: 'Marciais', 'martial-light': 'Marciais com Leve', 'martial-finesse-light': 'Marciais com Acuidade/Leve' }[w])).join(', ');
 
@@ -983,6 +999,24 @@ function mechLine(mec) {
   return parts.join(' · ');
 }
 
+// Bloco de informações sempre visível (sem hover): tempo/alcance/duração, mecânica e efeito
+function spellInfoHtml(sp) {
+  const mec = mecOf(sp);
+  const cat = sp.cat && SPELL[sp.cat];
+  const facts = [sp.time || (cat && cat.time), sp.range || (cat && cat.range), sp.dur || (cat && cat.dur)].filter(Boolean);
+  const short = (k, v) => k === 'save' ? v.replace('Salvaguarda de ', '').replace(' — metade do dano se passar', ' (metade se passar)')
+    : k === 'atk' ? v.replace('Ataque mágico ', '') : v;
+  const label = { atk: 'Ataque', save: 'Resistência' };
+  const items = MEC_ROWS.filter(([k]) => mec[k]).map(([k, l]) => `<span class="si si-${k}"><small>${label[k] || l}</small>${esc(short(k, mec[k]))}</span>`);
+  const effect = sp.notes || (cat && cat.sum) || '';
+  if (!facts.length && !items.length && !effect) return '';
+  return `<div class="spell-info">
+    ${facts.length ? `<div class="si-facts">${facts.map(esc).join(' · ')}</div>` : ''}
+    ${items.length ? `<div class="si-mec">${items.join('')}</div>` : ''}
+    ${effect ? `<p class="si-eff">${esc(effect)}</p>` : ''}
+  </div>`;
+}
+
 function spellCardHtml(sp, mine, full) {
   const lvlTxt = +sp.level === 0 ? `Truque de ${sp.school || '—'}` : `${sp.school || 'Magia'} de ${sp.level}º nível`;
   const cat = sp.cat ? SPELL[sp.cat] : (sp.classes ? sp : null);
@@ -1048,9 +1082,9 @@ function renderSpells(s, d) {
       : fixedPrep ? `<span class="cantrip-dot" title="${SPELL_SOURCES[src]} — não conta no limite">★</span>`
       : `<input type="checkbox" data-prep="${i}" ${sp.prepared ? 'checked' : ''} ${tooHigh && !sp.prepared ? 'disabled' : ''} title="${tooHigh ? 'Acima do seu nível máximo de magia' : 'Preparada'}">`}
     <input data-bind="spells.${i}.name" value="${esc(sp.name)}" placeholder="Nome da magia" class="spell-name">
-    ${mechLine(mecOf(sp)) ? `<div class="spell-mec mec-line">${esc(mechLine(mecOf(sp)))}</div>` : ''}
+    ${spellInfoHtml(sp)}
     <span class="tags">${src !== 'class' ? `<span class="badge">${src === 'always' ? 'Sempre' : 'Extra'}</span>` : ''}${tooHigh ? '<span class="badge bad" title="Acima do seu nível máximo">nível alto</span>' : ''}${sp.conc ? '<span class="badge">C</span>' : ''}${sp.ritual ? '<span class="badge">R</span>' : ''}</span>
-    <details><summary>detalhes</summary><div class="row gap wrap small">
+    <details><summary>editar</summary><div class="row gap wrap small">
       <label>Origem <select data-src="${i}">${Object.entries(SPELL_SOURCES).map(([k, v]) => opt(k, v, src)).join('')}</select></label>
       <label>Nível <select data-bind="spells.${i}.level" data-num>${Array.from({ length: 10 }, (_, l) => opt(l, l === 0 ? 'Truque' : l + 'º', sp.level)).join('')}</select></label>
       <label>Escola <select data-bind="spells.${i}.school">${opt('', '—', sp.school)}${SPELL_SCHOOLS.map(x => opt(x, x, sp.school)).join('')}</select></label>
@@ -1312,7 +1346,7 @@ const step = (avail, i, max) => Math.max(0, Math.min(max, i < avail ? avail - 1 
 const actions = {
   newSheet() { const s = newSheet(); db.sheets[s.id] = s; openSheet(s.id); ui.sub[s.id] = 'build'; save(); },
   openSheet(el) { openSheet(el.dataset.id); save(); },
-  switchTab(el) { db.active = el.dataset.id; save(); },
+  switchTab(el) { db.active = el.dataset.id; ui.photoView = false; save(); },
   closeTab(el, ev) {
     ev.stopPropagation();
     const id = el.dataset.id; const idx = db.open.indexOf(id);
@@ -1358,8 +1392,13 @@ const actions = {
   exportSheet(el) { const s = db.sheets[el.dataset.id]; download(`${(s.name || 'ficha').replace(/[^\w\-À-ÿ ]+/g, '')}.json`, s); return false; },
   importSheet() { $('#importFile').click(); return false; },
   subtab(el, ev) { ev.preventDefault(); ui.sub[db.active] = el.dataset.tab; save(); window.scrollTo({ top: $('.subtabs') ? $('.subtabs').offsetTop - 70 : 0 }); },
-  photoPick(el, ev) { if (ev.target.closest('.photo-x')) return false; $('#photoFile').click(); return false; },
-  photoRemove(el, ev, s) { ev.stopPropagation(); s.photo = ''; touch(s); },
+  photoPick(el, ev, s) {
+    if (s && s.photo) { ui.photoView = true; return; }   // tem foto: expande
+    $('#photoFile').click(); return false;               // sem foto: escolhe uma
+  },
+  photoChange() { $('#photoFile').click(); return false; },
+  photoRemove(el, ev, s) { s.photo = ''; ui.photoView = false; touch(s); toast('Foto removida.'); },
+  closePhoto() { ui.photoView = false; },
   rollMode(el) { ui.rollMode = el.dataset.mode; save(); },
   levelUp(el, ev, s) { s.level = Math.min(20, s.level + 1); touch(s); toast(`Nível ${s.level}! Confira novas características e PV.`, 'good'); },
 
@@ -1741,7 +1780,9 @@ document.addEventListener('keydown', (ev) => {
   if (id in map && map[id]) { ev.preventDefault(); ev.target.blur(); const b = $(`[data-action="${map[id]}"]`); if (b) b.click(); }
 });
 document.addEventListener('keydown', (ev) => {
+  if ((ev.key === 'Enter' || ev.key === ' ') && ev.target.dataset && ev.target.dataset.action === 'photoPick') { ev.preventDefault(); ev.target.click(); return; }
   if (ev.key !== 'Escape') return;
+  if (ui.photoView) { ui.photoView = false; render(); return; }
   if (ui.library) { ui.library = false; render(); }
   else if (ui.preview && !/INPUT|TEXTAREA|SELECT/.test(document.activeElement.tagName)) { ui.preview = false; render(); }
 });

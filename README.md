@@ -13,6 +13,9 @@ Os dados ficam no `localStorage` do navegador. Use **Exportar** na lista de fich
 - `js/app.js`: interface, abas, armazenamento, rolagens de dados
 - `css/style.css`: estilos
 - `js/spells.js`: catálogo de magias
+- `exemplos/template-ficha.json`: ficha vazia para preencher e importar
+- `exemplos/MANUAL-TEMPLATE.md`: manual do template (campos, códigos válidos, limites por nível) — feito para colar num chat de IA junto com o template
+- `tools/gerar-manual.js`: regenera o manual a partir dos dados do app (`node tools/gerar-manual.js`)
 
 ## Créditos
 O catálogo de magias usa o *System Reference Document 5.2* da Wizards of the Coast LLC, licenciado sob
