@@ -1,0 +1,44 @@
+<!doctype html>
+<html lang="pt-BR">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Grimório de Fichas — D&amp;D 5e (2024)</title>
+  <link rel="stylesheet" href="css/style.css">
+</head>
+<body>
+  <header class="topbar">
+    <button class="brand" data-action="toggleLibrary" title="Todas as fichas">
+      <span class="brand-icon">⚔</span><span class="brand-txt">Grimório</span>
+    </button>
+    <nav id="tabs" class="tabs"></nav>
+    <button class="btn sm lib-btn" data-action="toggleLibrary">📜 Fichas</button>
+  </header>
+
+  <main id="main"></main>
+  <div id="library" hidden></div>
+  <div id="toasts" aria-live="polite"></div>
+  <div id="hovercard" class="hovercard" hidden></div>
+
+  <input type="file" id="photoFile" accept="image/*" hidden>
+  <input type="file" id="importFile" accept="application/json,.json" hidden>
+
+  <script src="js/data.js"></script>
+  <script src="js/spells.js"></script>
+  <script src="js/rules.js"></script>
+  <script src="js/app.js"></script>
+  <script>
+    // Se os arquivos de css/ e js/ não carregaram (ex.: index.html aberto de dentro do zip), explica o que fazer.
+    if (typeof render === 'undefined') {
+      document.body.innerHTML =
+        '<div style="max-width:560px;margin:60px auto;padding:24px;font:16px/1.5 system-ui,sans-serif;background:#26211b;color:#ece3d2;border:1px solid #d4a64a;border-radius:12px">' +
+        '<h2 style="margin-top:0;color:#f0c870">Não foi possível carregar o Grimório</h2>' +
+        '<p>Parece que o <b>index.html</b> foi aberto sozinho, sem as pastas <b>css</b> e <b>js</b> que ficam ao lado dele. Isso acontece quando se abre o arquivo de <b>dentro do .zip</b> sem extrair.</p>' +
+        '<ol><li>Clique com o botão direito no arquivo <b>.zip</b> e escolha <b>Extrair tudo…</b></li>' +
+        '<li>Abra a pasta extraída.</li><li>Dê dois cliques no <b>index.html</b> de lá.</li></ol>' +
+        '<p style="color:#a99b84;font-size:14px">A pasta precisa conter: index.html, css/ e js/.</p></div>';
+      document.body.style.background = '#16130f';
+    }
+  </script>
+</body>
+</html>
