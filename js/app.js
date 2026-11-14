@@ -66,9 +66,13 @@ function classLine(s) {
   return [{ classId: s.classId, level: s.level }].concat(s.multiclass || []).filter(c => CLASS[c.classId])
     .map(c => `${CLASS[c.classId].name} ${c.level}`).join(' / ');
 }
+function speciesLabel(s) {
+  const sp = SPECIE[s.species]; if (!sp) return '';
+  const o = ((sp.choices || []).find(c => c.key === 'subrace') || { options: [] }).options.find(x => x.id === (s.speciesChoices || {}).subrace);
+  return o ? o.name : sp.name;
+}
 function summary(s) {
-  const sp = SPECIE[s.species];
-  return [sp && sp.name, classLine(s)].filter(Boolean).join(' · ') || 'Personagem incompleto';
+  return [speciesLabel(s), classLine(s)].filter(Boolean).join(' · ') || 'Personagem incompleto';
 }
 // Dados de Vida por tipo. Uma classe: usa hitDiceUsed (contrato original). Multiclasse: hitDiceUsedBy { dado: gastos }.
 function hdState(s, d) {
@@ -110,9 +114,10 @@ function rollD20(label, bonus, opts = {}) {
   toast(`<div class="t-label">${esc(label)}</div><div class="t-line"><span class="t-dice">🎲 ${dice}</span> ${fmt(bonus)}${exh ? ` −${exh} <small>exaustão</small>` : ''} = <b class="t-total${crit}">${total}</b></div>${nat === 20 ? '<div class="t-note">20 natural!</div>' : nat === 1 ? '<div class="t-note">1 natural…</div>' : ''}`, 'roll');
   return { nat, total };
 }
-function rollDamage(label, expr, crit) {
+function rollDamage(label, expr, crit, extraAfterCrit = '') {
   let e = expr;
   if (crit) e = expr.replace(/(\d*)d(\d+)/g, (_, n, d) => `${(+n || 1) * 2}d${d}`);
+  if (extraAfterCrit) e += '+' + extraAfterCrit;
   const r = rollExpr(e);
   toast(`<div class="t-label">${esc(label)}${crit ? ' — CRÍTICO' : ''}</div><div class="t-line"><span class="t-dice">${esc(e)}</span> → ${esc(r.detail)} = <b class="t-total">${r.total}</b></div>`, 'roll dmg');
   return r;
@@ -193,8 +198,9 @@ const PICKERS = {
   classId: (s) => ({ title: 'Escolher a classe', selected: s.classId, items: CLASSES.map(c => classItem(c)),
     pick: (s, v) => { s.classId = v; onChange.classId(s); } }),
   species: (s) => ({ title: 'Escolher a espécie', selected: s.species, items: SPECIES.map(x => ({ value: x.id, label: x.name,
+      group: x.legacy ? `Legado — ${x.legacy} (não é do Livro do Jogador 2024; confirme com o mestre)` : 'Livro do Jogador 2024', badge: x.legacy ? 'legado' : '',
       sub: `${x.size} · ${ftToM(x.speed)} m${x.darkvision ? ' · Visão no escuro ' + ftToM(x.darkvision) + ' m' : ''}`,
-      desc: x.traits.map(([l, n, t]) => `${n}${l > 1 ? ` (nível ${l})` : ''}: ${t}`).join('\n') })),
+      desc: x.traits.map(([l, n, t]) => `${n}${l > 1 ? ` (nível ${l})` : ''}: ${t}`).join('\n') + ((x.choices || []).find(c => c.key === 'subrace') ? '\nSub-raças: ' + x.choices.find(c => c.key === 'subrace').options.map(o => o.name).join(', ') : '') })),
     pick: (s, v) => { s.species = v; onChange.species(s); } }),
   background: (s) => ({ title: 'Escolher o antecedente', selected: s.background, items: BACKGROUNDS.map(b => ({ value: b.id, label: b.name,
       sub: `Atributos: ${b.abilities.map(a => AB[a].short).join(', ')} · Talento: ${FEAT[b.feat].name}`,
@@ -710,7 +716,7 @@ function renderPreview(s, d) {
   const hpCur = s.hp.current == null ? d.hpMax : s.hp.current;
   const sec = (title, body, cls = '') => body ? `<section class="pv-sec ${cls}"><h3>${title}</h3>${body}</section>` : '';
   const line = (k, v) => v ? `<div class="pv-line"><span>${k}</span><b>${v}</b></div>` : '';
-  const ident = [d.sp.id && d.sp.name, d.classes.map(c => `${c.cls.name} ${c.level}${c.sub ? ` (${c.sub.name})` : ''}`).join(' / '), d.bg.id && d.bg.name].filter(Boolean).map(esc).join(' · ');
+  const ident = [d.sp.id && speciesLabel(s), d.classes.map(c => `${c.cls.name} ${c.level}${c.sub ? ` (${c.sub.name})` : ''}`).join(' / '), d.bg.id && d.bg.name].filter(Boolean).map(esc).join(' · ');
   const flags = [s.inspiration && '<span class="badge gold">Inspiração Heroica</span>', s.exhaustion > 0 && `<span class="badge bad">Exaustão ${s.exhaustion}</span>`,
     ...s.conditions.map(c => `<span class="badge bad">${esc(c)}</span>`)].filter(Boolean).join(' ');
 
@@ -1953,7 +1959,8 @@ const actions = {
   },
   rollDmg(el, ev, s, d) {
     const atk = s.attacks[+el.dataset.i]; const c = attackCalc(d, s, atk);
-    rollDamage(`Dano: ${atk.name || (c.w ? c.w.name : 'Ataque')}`, c.dmg + (c.extra ? '+' + c.extra : ''), ev.shiftKey);
+    const savage = ev.shiftKey && d.savage && c.w && c.w.kind === 'm' ? '1d' + (/d(\d+)/.exec(c.dmg) || [])[1] : '';
+    rollDamage(`Dano: ${atk.name || (c.w ? c.w.name : 'Ataque')}${savage ? ' (+ Ataques Selvagens)' : ''}`, c.dmg + (c.extra ? '+' + c.extra : ''), ev.shiftKey, savage);
     return false;
   },
   rollDeath(el, ev, s, d) {

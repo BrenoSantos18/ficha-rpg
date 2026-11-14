@@ -147,6 +147,9 @@ function compute(s) {
   const has = (id) => feats.includes(id);
   const spc = s.speciesChoices || {};
   const warnings = [];
+  // Sub-raça (espécies de legado): efeitos de regra somam aos da espécie
+  const spOpt = ((sp.choices || []).find(c => c.key === 'subrace') || { options: [] }).options.find(o => o.id === spc.subrace) || {};
+  const spList = (k) => [...(sp[k] || []), ...(spOpt[k] || [])];
 
   // --- Atributos
   const bgBonus = { str: 0, dex: 0, con: 0, int: 0, wis: 0, cha: 0 };
@@ -204,6 +207,7 @@ function compute(s) {
   bg.skills.forEach(k => mark(k, 'Antecedente'));
   (s.classSkills || []).forEach(k => mark(k, 'Classe'));
   classes.filter(c => !c.primary).forEach(c => c.classSkills.forEach(k => mark(k, 'Multiclasse')));
+  spList('skills').forEach(k => mark(k, 'Espécie'));
   if (sp.id === 'elf') mark(spc.keen, 'Espécie');
   if (sp.id === 'human') mark(spc.skillful, 'Espécie');
   if (subs.has('mercy')) { mark('insight', 'Subclasse'); mark('medicine', 'Subclasse'); }
@@ -220,6 +224,8 @@ function compute(s) {
     if (choiceOf('druid', 'order') === 'magician' && (sk.id === 'arcana' || sk.id === 'nature')) bonus += Math.max(1, mods.wis);
     skills[sk.id] = { prof, auto: !!auto, sources: autoSkill[sk.id] || [], bonus, jack: !prof && jack > 0 };
   }
+  // Gnomo das Rochas (BG3): dobro do bônus de proficiência em História
+  if (spOpt.historyX2 && skills.history.prof < 2) Object.assign(skills.history, { prof: 2, auto: true, bonus: mods.int + 2 * pb, sources: [...skills.history.sources, 'Espécie'] });
   // Proficiências extras (além de antecedente, classe e espécie) e especializações
   const featCount = (id) => feats.filter(f => f === id).length;
   const extraSources = [];
@@ -258,6 +264,8 @@ function compute(s) {
   if (has('moderately-armored')) { armorTrain.add('medium'); armorTrain.add('shield'); }
   if (has('heavily-armored')) armorTrain.add('heavy');
   if (has('martial-weapon-training')) weaponTrain.add('martial');
+  spList('armor').forEach(a => armorTrain.add(a));
+  const weaponIds = new Set(spList('weapons'));   // armas específicas da espécie (legado)
   if (subs.has('gunslinger')) weaponTrain.add('firearm');   // homebrew de Matt Mercer
 
   // --- CA
@@ -283,6 +291,7 @@ function compute(s) {
   // --- Deslocamento
   let speed = sp.speed;
   if (sp.id === 'elf' && spc.lineage === 'wood') speed = 35;
+  if (spOpt.speed) speed = spOpt.speed;
   const heavy = armor.type === 'heavy';
   if (lvlOf('barbarian') >= 5 && !heavy) speed += 10;
   if (lvlOf('monk') >= 2 && armor.type === 'none' && !s.shield) speed += steps([[2, 10], [6, 15], [10, 20], [14, 25], [18, 30]])(lvlOf('monk'));
@@ -309,6 +318,7 @@ function compute(s) {
   } else hpMax = hd + mods.con + Math.max(0, level - 1) * (hd / 2 + 1 + mods.con);
   hpMax = Math.max(level, hpMax);
   if (sp.hpPerLevel) hpMax += sp.hpPerLevel * level;
+  if (spOpt.hpPerLevel) hpMax += spOpt.hpPerLevel * level;
   if (has('tough')) hpMax += 2 * level;
   if (subs.has('draconic')) hpMax += lvlOf('sorcerer');
   if (has('boon-fortitude')) hpMax += 40;
@@ -370,6 +380,7 @@ function compute(s) {
     orc: [{ key: 'sp-adrenaline', name: 'Surto de Adrenalina', max: pb, reset: 'short' }, { key: 'sp-relentless', name: 'Resistência Implacável', max: 1, reset: 'long' }],
   }[sp.id] || [];
   spRes.forEach(r => pushR(r, sp.name));
+  (sp.resources || []).forEach(r => pushR(r, sp.name));
   if (has('lucky')) pushR({ key: 'ft-luck', name: 'Pontos de Sorte', max: pb, reset: 'long' }, 'Talento');
   (s.customRes || []).forEach(r => pushR({ key: 'c:' + r.id, name: r.name || 'Recurso', max: +r.max || 0, reset: r.reset || 'long', custom: r.id }, 'Personalizado'));
 
@@ -379,7 +390,8 @@ function compute(s) {
   (sp.choices || []).forEach(ch => {
     if (!ch.options) return;
     const opt = ch.options.find(o => o.id === spc[ch.key]);
-    if (opt && opt.desc) features.push({ lvl: 1, name: `${ch.label}: ${opt.name}`, desc: opt.desc, src: sp.name, kind: 'species', srcLevel: level });
+    if (opt && opt.traits) opt.traits.forEach(([l, n, t]) => features.push({ lvl: l, name: n, desc: t, src: sp.name, kind: 'species', srcLevel: level }));
+    else if (opt && opt.desc) features.push({ lvl: 1, name: `${ch.label}: ${opt.name}`, desc: opt.desc, src: sp.name, kind: 'species', srcLevel: level });
   });
   classes.forEach(c => {
     c.cls.features.forEach(([l, n, d]) => features.push({ lvl: l, name: n, desc: d, src: c.cls.name, kind: 'class', srcLevel: c.level }));
@@ -393,11 +405,12 @@ function compute(s) {
   features.sort((a, b) => a.lvl - b.lvl);
 
   // --- Resistências / sentidos
-  const resist = [...(sp.resist || [])];
+  const resist = spList('resist');
   if (sp.id === 'dragonborn') { const o = sp.choices[0].options.find(o => o.id === spc.ancestry); if (o) resist.push(o.dmg); }
   if (sp.id === 'tiefling') { const o = sp.choices[0].options.find(o => o.id === spc.legacy); if (o) resist.push(o.dmg); }
   let darkvision = sp.darkvision;
   if (sp.id === 'elf' && spc.lineage === 'drow') darkvision = 120;
+  if (spOpt.darkvision) darkvision = spOpt.darkvision;
   if (subs.has('gloom-stalker') && darkvision < 60) darkvision = 60;
 
   // --- Idiomas automáticos e ferramentas de multiclasse
@@ -417,7 +430,7 @@ function compute(s) {
   const percep = skills.perception.bonus;
 
   return {
-    featBonus, featAbPending, featSaves,
+    featBonus, featAbPending, featSaves, weaponIds, spOpt, savage: !!sp.savage,
     cls, sp, bg, sub, subId, level, clsLevel, classes, multi, lvlOf, subs, mcIssues, mcPicks, mcTools, hitDice, casters,
     pb, scores, mods, bgBonus, capstone, saves, aura, skills, jack, expertiseMax, expertiseUsed, profExtraMax, profExtraUsed, extraSources, classSkillMax, classSkillList,
     armorTrain, weaponTrain, ac, acNote, warnings, speed, init, initAdv, hd, hpMax, casterType, castAb, cantrips, prepared, slots, pact, spell,
@@ -432,6 +445,7 @@ function compute(s) {
 
 // ---------------------------------------------------------------- Ataques
 function weaponProficient(d, w) {
+  if (d.weaponIds && d.weaponIds.has(w.id)) return true;
   if (d.weaponTrain.has(w.cat)) return true;
   if (w.cat === 'martial' && d.weaponTrain.has('martial-light') && w.props.includes('Leve')) return true;
   if (w.cat === 'martial' && d.weaponTrain.has('martial-finesse-light') && (w.props.includes('Leve') || w.props.includes('Acuidade'))) return true;

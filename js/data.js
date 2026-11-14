@@ -171,7 +171,109 @@ const SPECIES = [
       [1, 'Presença Sobrenatural', 'Você conhece o truque Taumaturgia.'],
     ],
   },
+  // ------------------------------------------------------------------------------------------------
+  // LEGADO — Baldur's Gate 3 (fonte: bg3.wiki). Não são espécies do Livro do Jogador 2024.
+  // Distâncias e deslocamentos seguem o jogo (ex.: visão no escuro 12 m; Anão/Halfling/Gnomo 7,5 m).
+  // Os aumentos de atributo continuam vindo do antecedente (no BG3 eles também são livres, não da raça).
+  // Campos de regra: speed, darkvision, skills, weapons (ids), armor, resist, hpPerLevel, historyX2, savage, resources.
+  // ------------------------------------------------------------------------------------------------
+  { id: 'bg3-half-elf', name: 'Meio-Elfo', legacy: "Baldur's Gate 3", size: 'Médio', speed: 30, darkvision: 40,
+    weapons: ['spear', 'pike', 'halberd', 'glaive'], armor: ['light', 'shield'],
+    traits: [
+      [1, 'Visão no Escuro', '12 m (40 pés).'],
+      [1, 'Ancestralidade Feérica', 'Vantagem em salvaguardas contra ficar Enfeitiçado; magia não pode fazê-lo dormir.'],
+      [1, 'Milícia Civil', 'Proficiência com lança, pique, alabarda e glaive; treinamento com armadura leve e escudo.'],
+    ],
+    choices: [{ key: 'subrace', label: 'Sub-raça', options: [
+      { id: 'high', name: 'Alto Meio-Elfo', traits: [[1, 'Truque', 'Um truque à escolha da lista de Mago, com Inteligência (adicione em Magias → Outras fontes).']] },
+      { id: 'wood', name: 'Meio-Elfo da Floresta', speed: 35, skills: ['stealth'], traits: [[1, 'Pés Ligeiros', '+1,5 m de deslocamento (já somado).'], [1, 'Furtividade', 'Proficiência em Furtividade.']] },
+      { id: 'drow', name: 'Meio-Drow', traits: [[1, 'Magia Drow', 'Carisma. Truque Globos de Luz; nível 3: Fogo das Fadas; nível 5: Escuridão (cada uma 1x por descanso longo).']] },
+    ] }],
+  },
+  { id: 'bg3-half-orc', name: 'Meio-Orc', legacy: "Baldur's Gate 3", size: 'Médio', speed: 30, darkvision: 40, skills: ['intimidation'], savage: true,
+    resources: [{ key: 'sp-bg3-relentless', name: 'Resistência Implacável', max: 1, reset: 'long' }],
+    traits: [
+      [1, 'Visão no Escuro', '12 m (40 pés).'],
+      [1, 'Ameaçador', 'Proficiência em Intimidação.'],
+      [1, 'Resistência Implacável', 'Ao cair a 0 PV sem morrer, fica com 1 PV. 1x por descanso longo.'],
+      [1, 'Ataques Selvagens', 'Em acerto crítico com ataque de arma corpo a corpo, role um dado de dano da arma a mais (não vale para desarmado; já somado ao rolar crítico).'],
+    ],
+  },
+  { id: 'bg3-elf', name: 'Elfo', legacy: "Baldur's Gate 3", size: 'Médio', speed: 30, darkvision: 40, skills: ['perception'],
+    weapons: ['longsword', 'shortsword', 'longbow', 'shortbow'],
+    traits: [
+      [1, 'Visão no Escuro', '12 m (40 pés).'],
+      [1, 'Sentidos Aguçados', 'Proficiência em Percepção.'],
+      [1, 'Treinamento Élfico com Armas', 'Proficiência com espada longa, espada curta, arco longo e arco curto.'],
+      [1, 'Ancestralidade Feérica', 'Vantagem em salvaguardas contra ficar Enfeitiçado; magia não pode fazê-lo dormir.'],
+    ],
+    choices: [{ key: 'subrace', label: 'Sub-raça', options: [
+      { id: 'high', name: 'Alto Elfo', traits: [[1, 'Truque', 'Um truque à escolha da lista de Mago, com Inteligência (adicione em Magias → Outras fontes).']] },
+      { id: 'wood', name: 'Elfo da Floresta', speed: 35, skills: ['stealth'], traits: [[1, 'Pés Ligeiros', '+1,5 m de deslocamento (já somado).'], [1, 'Furtividade', 'Proficiência em Furtividade.']] },
+    ] }],
+  },
+  { id: 'bg3-drow', name: 'Drow', legacy: "Baldur's Gate 3", size: 'Médio', speed: 30, darkvision: 80, skills: ['perception'],
+    weapons: ['rapier', 'shortsword', 'hand-crossbow'],
+    traits: [
+      [1, 'Visão no Escuro Superior', '24 m (80 pés).'],
+      [1, 'Sentidos Aguçados', 'Proficiência em Percepção.'],
+      [1, 'Treinamento Drow com Armas', 'Proficiência com rapieira, espada curta e besta de mão.'],
+      [1, 'Ancestralidade Feérica', 'Vantagem em salvaguardas contra ficar Enfeitiçado; magia não pode fazê-lo dormir.'],
+      [1, 'Magia Drow', 'Truque Globos de Luz; nível 3: Fogo das Fadas; nível 5: Escuridão (cada uma 1x por descanso longo).'],
+    ],
+    choices: [{ key: 'subrace', label: 'Sub-raça', options: [
+      { id: 'lolth', name: 'Drow Juramentado de Lolth', traits: [[1, 'Juramentado de Lolth', 'Sem diferença de regra: muda a história e permite Clérigo de Lolth.']] },
+      { id: 'seldarine', name: 'Drow da Seldarine', traits: [[1, 'Drow da Seldarine', 'Sem diferença de regra: muda a história e as divindades do Clérigo (exceto Lolth).']] },
+    ] }],
+  },
+  { id: 'bg3-dwarf', name: 'Anão', legacy: "Baldur's Gate 3", size: 'Médio', speed: 25, darkvision: 40, resist: ['Veneno'],
+    weapons: ['battleaxe', 'handaxe', 'light-hammer', 'warhammer'],
+    traits: [
+      [1, 'Visão no Escuro', '12 m (40 pés).'],
+      [1, 'Treinamento Anão em Combate', 'Proficiência com machado de batalha, machadinha, martelo leve e martelo de guerra.'],
+      [1, 'Resiliência Anã', 'Vantagem em salvaguardas contra ficar Envenenado e resistência a dano de Veneno.'],
+    ],
+    choices: [{ key: 'subrace', label: 'Sub-raça', options: [
+      { id: 'gold', name: 'Anão Dourado (da Colina)', hpPerLevel: 1, traits: [[1, 'Robustez Anã', '+1 PV máximo por nível (já somado).']] },
+      { id: 'shield', name: 'Anão do Escudo (das Montanhas)', armor: ['light', 'medium'], traits: [[1, 'Treinamento Anão com Armaduras', 'Treinamento com armadura leve e média.']] },
+      { id: 'duergar', name: 'Duergar', darkvision: 80, traits: [
+        [1, 'Visão no Escuro Superior', '24 m (80 pés).'],
+        [1, 'Resiliência Duergar', 'Vantagem em salvaguardas contra ilusões e contra ficar Enfeitiçado ou Paralisado.'],
+        [3, 'Magia Duergar: Aumentar', 'Aumentar/Reduzir em si mesmo, sem concentração, 1x por descanso longo.'],
+        [5, 'Magia Duergar: Invisibilidade', 'Invisibilidade em si mesmo (no jogo recarrega a cada combate; na mesa, combine com o mestre).']] },
+    ] }],
+  },
+  { id: 'bg3-halfling', name: 'Halfling', legacy: "Baldur's Gate 3", size: 'Pequeno', speed: 25, darkvision: 0,
+    traits: [
+      [1, 'Sorte Halfling', 'Ao tirar 1 num ataque, teste de atributo ou salvaguarda, rola de novo e usa o novo resultado.'],
+      [1, 'Bravura', 'Vantagem em salvaguardas contra ficar Amedrontado.'],
+    ],
+    choices: [{ key: 'subrace', label: 'Sub-raça', options: [
+      { id: 'lightfoot', name: 'Halfling Pés-Leves', traits: [[1, 'Furtividade Natural', 'Vantagem em testes de Furtividade.']] },
+      { id: 'strongheart', name: 'Halfling Coração-Forte', resist: ['Veneno'], traits: [[1, 'Resiliência Coração-Forte', 'Vantagem em salvaguardas contra ficar Envenenado e resistência a dano de Veneno.']] },
+    ] }],
+  },
+  { id: 'bg3-gnome', name: 'Gnomo', legacy: "Baldur's Gate 3", size: 'Pequeno', speed: 25, darkvision: 0,
+    traits: [[1, 'Astúcia Gnômica', 'Vantagem em salvaguardas de INT, SAB e CAR.']],
+    choices: [{ key: 'subrace', label: 'Sub-raça', options: [
+      { id: 'rock', name: 'Gnomo das Rochas', darkvision: 40, historyX2: true, traits: [[1, 'Visão no Escuro', '12 m (40 pés).'], [1, 'Saber de Artífice', 'Soma o dobro do bônus de proficiência em testes de História (já somado).']] },
+      { id: 'forest', name: 'Gnomo da Floresta', darkvision: 40, traits: [[1, 'Visão no Escuro', '12 m (40 pés).'], [1, 'Falar com Animais', 'Falar com Animais 1x por descanso longo.']] },
+      { id: 'deep', name: 'Gnomo das Profundezas', darkvision: 80, traits: [[1, 'Visão no Escuro Superior', '24 m (80 pés).'], [1, 'Camuflagem de Pedra', 'Vantagem em testes de Furtividade.']] },
+    ] }],
+  },
+  { id: 'bg3-tiefling', name: 'Tiefling', legacy: "Baldur's Gate 3", size: 'Médio', speed: 30, darkvision: 40, resist: ['Fogo'],
+    traits: [[1, 'Visão no Escuro', '12 m (40 pés).'], [1, 'Resistência Infernal', 'Resistência a dano de Fogo.']],
+    choices: [{ key: 'subrace', label: 'Sub-raça', options: [
+      { id: 'asmodeus', name: 'Tiefling de Asmodeus', traits: [[1, 'Legado Infernal', 'Carisma. Truque Produzir Chama (o ataque usa SAB); nível 3: Repreensão Infernal; nível 5: Escuridão (1x por descanso longo).']] },
+      { id: 'mephistopheles', name: 'Tiefling de Mefistófeles', traits: [[1, 'Legado de Cânia', 'Carisma. Truque Mãos Mágicas; nível 3: Mãos Flamejantes; nível 5: Lâmina Flamejante (1x por descanso longo).']] },
+      { id: 'zariel', name: 'Tiefling de Zariel', traits: [[1, 'Legado de Avernus', 'Carisma. Truque Taumaturgia; nível 3: Golpe Abrasador; nível 5: Golpe Marcante (1x por descanso longo).']] },
+    ] }],
+  },
 ];
+// Resumo de cada sub-raça (usado no seletor e no manual)
+SPECIES.forEach(sp => (sp.choices || []).forEach(ch => (ch.options || []).forEach(o => {
+  if (!o.desc && o.traits) o.desc = o.traits.map(([l, n, t]) => `${n}${l > 1 ? ` (nível ${l})` : ''}: ${t}`).join(' ');
+})));
 
 // ---------------------------------------------------------------- TALENTOS
 const FEATS = [

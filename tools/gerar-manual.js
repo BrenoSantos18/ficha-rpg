@@ -113,7 +113,7 @@ out('### Como montar os atributos', '',
 // Espécies
 out('## 4. Espécies (`species`)', '');
 for (const sp of D.SPECIES) {
-  out(`### ${code(sp.id)} — ${sp.name}`, `Tamanho: ${sp.size}${sp.sizeChoice ? ' (use `size`)' : ''} · Deslocamento: ${sp.speed} pés · Visão no escuro: ${sp.darkvision || 'não'}`);
+  out(`### ${code(sp.id)} — ${sp.name}${sp.legacy ? ` *(legado: ${sp.legacy} — não é do Livro do Jogador 2024; use só se o mestre permitir)*` : ''}`, `Tamanho: ${sp.size}${sp.sizeChoice ? ' (use `size`)' : ''} · Deslocamento: ${sp.speed} pés · Visão no escuro: ${sp.darkvision || 'não'}`);
   for (const ch of sp.choices || []) {
     if (ch.options) out(`- \`speciesChoices.${ch.key}\` (${ch.label}): ${ch.options.map(o => `${code(o.id)} = ${o.name}`).join('; ')}`);
     else if (ch.skillAny) out(`- \`speciesChoices.${ch.key}\` (${ch.label}): código de qualquer perícia.`);

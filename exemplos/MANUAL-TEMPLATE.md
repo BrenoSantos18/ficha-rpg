@@ -172,6 +172,37 @@ Tamanho: Médio · Deslocamento: 30 pés · Visão no escuro: 120
 Tamanho: Médio ou Pequeno (use `size`) · Deslocamento: 30 pés · Visão no escuro: 60
 - `speciesChoices.legacy` (Legado Ínfero): `abyssal` = Abissal; `chthonic` = Ctônico; `infernal` = Infernal
 
+### `bg3-half-elf` — Meio-Elfo *(legado: Baldur's Gate 3 — não é do Livro do Jogador 2024; use só se o mestre permitir)*
+Tamanho: Médio · Deslocamento: 30 pés · Visão no escuro: 40
+- `speciesChoices.subrace` (Sub-raça): `high` = Alto Meio-Elfo; `wood` = Meio-Elfo da Floresta; `drow` = Meio-Drow
+
+### `bg3-half-orc` — Meio-Orc *(legado: Baldur's Gate 3 — não é do Livro do Jogador 2024; use só se o mestre permitir)*
+Tamanho: Médio · Deslocamento: 30 pés · Visão no escuro: 40
+
+### `bg3-elf` — Elfo *(legado: Baldur's Gate 3 — não é do Livro do Jogador 2024; use só se o mestre permitir)*
+Tamanho: Médio · Deslocamento: 30 pés · Visão no escuro: 40
+- `speciesChoices.subrace` (Sub-raça): `high` = Alto Elfo; `wood` = Elfo da Floresta
+
+### `bg3-drow` — Drow *(legado: Baldur's Gate 3 — não é do Livro do Jogador 2024; use só se o mestre permitir)*
+Tamanho: Médio · Deslocamento: 30 pés · Visão no escuro: 80
+- `speciesChoices.subrace` (Sub-raça): `lolth` = Drow Juramentado de Lolth; `seldarine` = Drow da Seldarine
+
+### `bg3-dwarf` — Anão *(legado: Baldur's Gate 3 — não é do Livro do Jogador 2024; use só se o mestre permitir)*
+Tamanho: Médio · Deslocamento: 25 pés · Visão no escuro: 40
+- `speciesChoices.subrace` (Sub-raça): `gold` = Anão Dourado (da Colina); `shield` = Anão do Escudo (das Montanhas); `duergar` = Duergar
+
+### `bg3-halfling` — Halfling *(legado: Baldur's Gate 3 — não é do Livro do Jogador 2024; use só se o mestre permitir)*
+Tamanho: Pequeno · Deslocamento: 25 pés · Visão no escuro: não
+- `speciesChoices.subrace` (Sub-raça): `lightfoot` = Halfling Pés-Leves; `strongheart` = Halfling Coração-Forte
+
+### `bg3-gnome` — Gnomo *(legado: Baldur's Gate 3 — não é do Livro do Jogador 2024; use só se o mestre permitir)*
+Tamanho: Pequeno · Deslocamento: 25 pés · Visão no escuro: não
+- `speciesChoices.subrace` (Sub-raça): `rock` = Gnomo das Rochas; `forest` = Gnomo da Floresta; `deep` = Gnomo das Profundezas
+
+### `bg3-tiefling` — Tiefling *(legado: Baldur's Gate 3 — não é do Livro do Jogador 2024; use só se o mestre permitir)*
+Tamanho: Médio · Deslocamento: 30 pés · Visão no escuro: 40
+- `speciesChoices.subrace` (Sub-raça): `asmodeus` = Tiefling de Asmodeus; `mephistopheles` = Tiefling de Mefistófeles; `zariel` = Tiefling de Zariel
+
 ## 5. Antecedentes (`background`)
 
 | Código | Nome | Atributos (`bg2`/`bg1`) | Talento de Origem | Perícias (automáticas) | Ferramenta |
