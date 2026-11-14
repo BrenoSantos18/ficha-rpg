@@ -258,6 +258,7 @@ function compute(s) {
   if (has('moderately-armored')) { armorTrain.add('medium'); armorTrain.add('shield'); }
   if (has('heavily-armored')) armorTrain.add('heavy');
   if (has('martial-weapon-training')) weaponTrain.add('martial');
+  if (subs.has('gunslinger')) weaponTrain.add('firearm');   // homebrew de Matt Mercer
 
   // --- CA
   const armor = ARMOR[s.armor] || ARMOR.none;
@@ -296,6 +297,7 @@ function compute(s) {
   let init = mods.dex + (+s.initBonus || 0);
   if (has('alert')) init += pb;
   if (subs.has('gloom-stalker')) init += mods.wis;
+  if (subs.has('gunslinger') && lvlOf('fighter') >= 7) init += pb;   // Saque Rápido (homebrew)
   const initAdv = lvlOf('barbarian') >= 7 || subs.has('champion') || subs.has('assassin');
 
   // --- PV: dado máximo da classe inicial no 1º nível; média do dado de cada classe nos demais
@@ -401,6 +403,7 @@ function compute(s) {
   // --- Idiomas automáticos e ferramentas de multiclasse
   const autoLangs = [...new Set(classes.flatMap(c => c.cls.languages || []))];
   const mcTools = classes.filter(c => !c.primary && (MULTICLASS[c.classId] || {}).tools).map(c => MULTICLASS[c.classId].tools);
+  if (subs.has('gunslinger')) mcTools.push('Ferramentas de Funileiro');   // Armeiro (homebrew)
 
   // --- Carga
   const sizeMult = sp.id === 'goliath' ? 2 : 1;

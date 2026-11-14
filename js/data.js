@@ -367,9 +367,18 @@ const WEAPON_ROWS = [
   ['longbow', 'Arco Longo', 'martial', 'r', '1d8', 'Perfurante', ['Munição (45/180 m)', 'Pesada', 'Duas Mãos'], 'Lentidão', 2],
   ['musket', 'Mosquete', 'martial', 'r', '1d12', 'Perfurante', ['Munição (12/36 m)', 'Recarga', 'Duas Mãos'], 'Lentidão', 10],
   ['pistol', 'Pistola', 'martial', 'r', '1d10', 'Perfurante', ['Munição (9/27 m)', 'Recarga'], 'Irritar', 3],
+  // Homebrew de Matt Mercer (Critical Role), usadas pelo Pistoleiro (Gunslinger). Exigem proficiência com armas de fogo.
+  // "Falha N": se o d20 do ataque der N ou menos, a arma emperra e precisa de reparo.
+  ['palm-pistol', 'Pistola de Bolso', 'firearm', 'r', '1d8', 'Perfurante', ['Munição (12/48 m)', 'Leve', '1 tiro por recarga', 'Falha 1'], '', 1],
+  ['pepperbox', 'Pimenteira', 'firearm', 'r', '1d10', 'Perfurante', ['Munição (24/96 m)', '6 tiros por recarga', 'Falha 2'], '', 5],
+  ['blunderbuss', 'Bacamarte', 'firearm', 'r', '2d8', 'Perfurante', ['Munição (4,5/18 m)', '1 tiro por recarga', 'Falha 2'], '', 10],
+  ['bad-news', 'Bad News', 'firearm', 'r', '2d12', 'Perfurante', ['Munição (60/240 m)', 'Duas Mãos', '1 tiro por recarga', 'Falha 3'], '', 25],
+  ['hand-mortar', 'Morteiro de Mão', 'firearm', 'r', '2d8', 'Fogo', ['Munição (9/18 m)', 'Explosivo', '1 tiro por recarga', 'Falha 3'], '', 10],
 ];
 const WEAPONS = WEAPON_ROWS.map(([id, name, cat, kind, dmg, dtype, props, mastery, weight]) => ({ id, name, cat, kind, dmg, dtype, props, mastery, weight }));
+WEAPONS.forEach(w => { w.hb = w.cat === 'firearm'; });   // conteúdo homebrew (não oficial)
 const WEAPON = Object.fromEntries(WEAPONS.map(w => [w.id, w]));
+const FIREARMS = new Set(['pistol', 'musket', ...WEAPONS.filter(w => w.cat === 'firearm').map(w => w.id)]);
 
 const MASTERY_DESC = {
   'Trespassar': 'Ao acertar, faça outro ataque contra criatura a 1,5 m do alvo (sem somar mod. ao dano). 1x por turno.',
@@ -655,7 +664,8 @@ const CLASSES = [
     masteryCount: steps([[1, 3], [4, 4], [10, 5], [16, 6]]),
     thirdCaster: 'eldritch-knight', thirdAb: 'int',
     equipA: [['Cota de Malha', 1, 'a:chain-mail'], ['Espada Grande', 1, 'w:greatsword'], ['Mangual', 1, 'w:flail'], ['Azagaia', 8, 'w:javelin'], ['Pacote de Explorador de Masmorras']], gpA: 4, gpB: 155,
-    stats: (c) => [['Ataques por ação', steps([[1, 1], [5, 2], [11, 3], [20, 4]])(c.level)]],
+    stats: (c) => [['Ataques por ação', steps([[1, 1], [5, 2], [11, 3], [20, 4]])(c.level)]].concat(c.sub === 'gunslinger' && c.level >= 3
+      ? [['Disparos Especiais', steps([[3, 2], [7, 3], [10, 4], [15, 5], [18, 6]])(c.level)], ['CD dos Disparos', 8 + c.pb + c.mods.dex]] : []),
     resources: (c) => {
       const r = [
         { key: 'secondwind', name: 'Retomar o Fôlego', max: steps([[1, 2], [4, 3], [10, 4]])(c.level), reset: 'long', shortGain: 1, note: '1d10 + nível de cura; recupera 1 no descanso curto' },
@@ -663,6 +673,7 @@ const CLASSES = [
         c.level >= 9 && { key: 'indomitable', name: 'Indomável', max: steps([[9, 1], [13, 2], [17, 3]])(c.level), reset: 'long' },
       ];
       if (c.sub === 'battle-master' && c.level >= 3) r.push({ key: 'superiority', name: 'Dados de Superioridade (d' + steps([[3, 8], [10, 10], [18, 12]])(c.level) + ')', max: steps([[3, 4], [7, 5], [15, 6]])(c.level), reset: 'short' });
+      if (c.sub === 'gunslinger' && c.level >= 3) r.push({ key: 'grit', name: 'Garra (Gunslinger)', max: Math.max(1, c.mods.wis), reset: 'short', note: '+1 em crítico ou abate com arma de fogo' });
       if (c.sub === 'psi-warrior' && c.level >= 3) r.push({ key: 'psionic', name: 'Energia Psiônica (d' + steps([[3, 6], [5, 8], [11, 10], [17, 12]])(c.level) + ')', max: steps([[3, 4], [5, 6], [9, 8], [13, 10], [17, 12]])(c.level), reset: 'long', shortGain: 1, note: 'Recupera 1 no descanso curto' });
       return r;
     },
@@ -716,6 +727,18 @@ const CLASSES = [
         [10, 'Mente Protegida', 'Resistência Psíquica; encerra Enfeitiçado/Amedrontado.'],
         [15, 'Baluarte de Força', 'Meia cobertura para aliados.'],
         [18, 'Mestre Telecinético', 'Telecinese sem espaço; ataque como Ação Bônus.'] ] },
+      // Homebrew de Matt Mercer (Critical Role) — resumos próprios das mecânicas
+      { id: 'gunslinger', name: 'Pistoleiro (Gunslinger, homebrew)', homebrew: 'Matt Mercer (Critical Role)', features: [
+        [3, 'Proficiência com Armas de Fogo', 'Proficiência com as armas de fogo do homebrew (Pistola de Bolso, Pimenteira, Bacamarte, Bad News e Morteiro de Mão).'],
+        [3, 'Armeiro', 'Proficiência em Ferramentas de Funileiro. Fabrica munição e conserta armas de fogo emperradas (com tempo e materiais).'],
+        [3, 'Falha (armas de fogo)', 'Se o d20 de um ataque com arma de fogo der igual ou menor que o valor de Falha da arma, ela emperra: o ataque erra e a arma precisa de reparo (Ferramentas de Funileiro, CD 8 + Falha) antes de atirar de novo.'],
+        [3, 'Atirador Hábil', 'Pontos de Garra = mod. de SAB (mín. 1). Recupera 1 Garra ao acertar um crítico ou reduzir uma criatura a 0 PV com arma de fogo, e todas no descanso curto ou longo. Conhece 2 Disparos Especiais (+1 nos níveis 7, 10, 15 e 18); CD = 8 + BP + DES; um disparo por ataque.'],
+        [3, 'Disparos Especiais', 'Custam 1 Garra cada. Intimidador: teste de Intimidação com Vantagem. Atordoante: ao acertar, salvaguarda de CON ou Desvantagem nos ataques até o fim do próximo turno do alvo. Olho de Águia: Ação Bônus, Vantagem no próximo tiro deste turno. Desarmante: ao acertar, FOR ou larga o item segurado. Empurrão: ao acertar, FOR ou é empurrado 4,5 m. Perfurante: o tiro atinge cada criatura numa linha de 9 m (Falha +1). Violento: cada Garra gasta soma +1 dado de dano e +2 na Falha. Derrubador: ao acertar, FOR ou fica Caído.'],
+        [7, 'Saque Rápido', '+BP na Iniciativa (já somado). Saca e guarda uma arma de fogo sem gastar ação.'],
+        [10, 'Reparo Rápido', 'Ação Bônus e 1 Garra: conserta uma arma de fogo emperrada.'],
+        [15, 'Recarga Relâmpago', 'Recarrega uma arma de fogo com uma Ação Bônus.'],
+        [18, 'Intenção Cruel', 'Crítico com 19–20 em ataques com arma de fogo; um 19 também recupera Garra.'],
+        [18, 'Crítico Hemorrágico', 'Ao acertar um crítico com arma de fogo, o alvo sofre metade do dano de novo no fim do próximo turno dele.'] ] },
     ],
   },
   {

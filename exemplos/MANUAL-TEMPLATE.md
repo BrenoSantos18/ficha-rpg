@@ -223,7 +223,7 @@ Tamanho: Médio ou Pequeno (use `size`) · Deslocamento: 30 pés · Visão no es
 - Dado de Vida d10 · Salvaguardas: FOR, CON · Armaduras: Leve, Média, Pesada, Escudos · Armas: Simples, Marciais
 - `classSkills`: escolha **2** de `acrobatics`, `animal`, `athletics`, `history`, `insight`, `intimidation`, `persuasion`, `perception`, `survival`
 - Maestria em armas (`mastery`, só em armas com proficiência e que estejam em `attacks`): nível 1: 3 · nível 4: 4 · nível 10: 5 · nível 16: 6
-- Subclasses (nível 3+): `battle-master` = Mestre de Batalha; `champion` = Campeão; `eldritch-knight` = Cavaleiro Arcano; `psi-warrior` = Guerreiro Psiônico
+- Subclasses (nível 3+): `battle-master` = Mestre de Batalha; `champion` = Campeão; `eldritch-knight` = Cavaleiro Arcano; `psi-warrior` = Guerreiro Psiônico; `gunslinger` = Pistoleiro (Gunslinger, homebrew) *(não oficial — homebrew de Matt Mercer (Critical Role); use só se o mestre permitir)*
 
 ### `monk` — Monge
 - Dado de Vida d8 · Salvaguardas: FOR, DES · Armaduras: nenhuma · Armas: Simples, Marciais com Leve
@@ -456,6 +456,11 @@ Formato de cada item de `inventory`: `{ "id": "", "name": "Corda (15 m)", "qty":
 | `longbow` | Arco Longo | Marcial à distância | 1d8 Perfurante | Munição (45/180 m), Pesada, Duas Mãos | Lentidão | 2 |
 | `musket` | Mosquete | Marcial à distância | 1d12 Perfurante | Munição (12/36 m), Recarga, Duas Mãos | Lentidão | 10 |
 | `pistol` | Pistola | Marcial à distância | 1d10 Perfurante | Munição (9/27 m), Recarga | Irritar | 3 |
+| `palm-pistol` | Pistola de Bolso *(homebrew)* | Arma de fogo (homebrew, exige Pistoleiro) | 1d8 Perfurante | Munição (12/48 m), Leve, 1 tiro por recarga, Falha 1 | — | 1 |
+| `pepperbox` | Pimenteira *(homebrew)* | Arma de fogo (homebrew, exige Pistoleiro) | 1d10 Perfurante | Munição (24/96 m), 6 tiros por recarga, Falha 2 | — | 5 |
+| `blunderbuss` | Bacamarte *(homebrew)* | Arma de fogo (homebrew, exige Pistoleiro) | 2d8 Perfurante | Munição (4,5/18 m), 1 tiro por recarga, Falha 2 | — | 10 |
+| `bad-news` | Bad News *(homebrew)* | Arma de fogo (homebrew, exige Pistoleiro) | 2d12 Perfurante | Munição (60/240 m), Duas Mãos, 1 tiro por recarga, Falha 3 | — | 25 |
+| `hand-mortar` | Morteiro de Mão *(homebrew)* | Arma de fogo (homebrew, exige Pistoleiro) | 2d8 Fogo | Munição (9/18 m), Explosivo, 1 tiro por recarga, Falha 3 | — | 10 |
 
 ### Armaduras (`armor`)
 

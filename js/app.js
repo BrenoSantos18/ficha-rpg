@@ -175,10 +175,12 @@ const featItem = (f, why) => ({ value: f.id, label: f.name, group: f.cat, why, d
 const classItem = (c, why) => ({ value: c.id, label: c.name, why,
   sub: `Dado de Vida d${c.hd} · Atributo principal: ${c.primary}${c.caster ? ' · Conjura (' + AB[c.castAb].name + ')' : ''}`,
   desc: `Salvaguardas: ${c.saves.map(a => AB[a].name).join(', ')}. Armaduras: ${c.armor.map(a => a === 'shield' ? 'escudos' : ARMOR_TYPE_NAME[a].toLowerCase()).join(', ') || 'nenhuma'}. Armas: ${c.weapons.map(w => WTRAIN[w].toLowerCase()).join(', ')}. ${c.skillCount} perícias. Subclasses: ${c.subclasses.map(x => x.name).join(', ')}.` });
-const subItem = (x) => ({ value: x.id, label: x.name, sub: 'Características por nível',
+const subItem = (x) => ({ value: x.id, label: x.name, sub: x.homebrew ? `Homebrew — ${x.homebrew}. Não é conteúdo oficial; confirme com o mestre.` : 'Características por nível', badge: x.homebrew ? 'homebrew' : '',
   desc: x.features.map(([l, n, t]) => `Nv ${l} — ${n}${t ? ': ' + t : ''}`).join('\n') });
-const weaponItem = (d) => (w) => ({ value: w.id, label: w.name, group: `${w.cat === 'simple' ? 'Simples' : 'Marciais'} ${w.kind === 'm' ? 'corpo a corpo' : 'à distância'}`,
-  sub: `${w.dmg} ${w.dtype}${w.props.length ? ' · ' + w.props.join(', ') : ''} · ${w.weight} lb`, desc: `Maestria ${w.mastery}: ${MASTERY_DESC[w.mastery]}`,
+const weaponItem = (d) => (w) => ({ value: w.id, label: w.name + (w.hb ? ' (homebrew)' : ''),
+  group: w.cat === 'firearm' ? 'Armas de fogo — homebrew de Matt Mercer' : `${w.cat === 'simple' ? 'Simples' : 'Marciais'} ${w.kind === 'm' ? 'corpo a corpo' : 'à distância'}`,
+  sub: `${w.dmg} ${w.dtype}${w.props.length ? ' · ' + w.props.join(', ') : ''} · ${w.weight} lb`,
+  desc: w.mastery ? `Maestria ${w.mastery}: ${MASTERY_DESC[w.mastery]}` : 'Sem propriedade de Maestria. Exige proficiência com armas de fogo (Pistoleiro).',
   badge: weaponProficient(d, w) ? '' : 'sem proficiência' });
 const armorItem = (d) => (a) => ({ value: a.id, label: a.name, group: a.type === 'none' ? 'Sem armadura' : 'Armadura ' + ARMOR_TYPE_NAME[a.type].toLowerCase(),
   sub: a.type === 'none' ? 'CA 10 + DES (ou Defesa sem Armadura da classe)' : `CA ${a.base}${a.type === 'light' ? ' + DES' : a.type === 'medium' ? ' + DES (máx. 2)' : ''} · ${a.weight} lb`,
@@ -499,7 +501,7 @@ function renderLightbox(s) {
 
 // Números de classe (Fúria, Ataque Furtivo, Artes Marciais...), cada um pelo nível na própria classe
 function classStats(d) {
-  return d.classes.flatMap(c => (c.cls.stats ? c.cls.stats({ level: c.level, mods: d.mods, pb: d.pb }) : [])
+  return d.classes.flatMap(c => (c.cls.stats ? c.cls.stats({ level: c.level, mods: d.mods, pb: d.pb, sub: c.sub ? c.sub.id : '' }) : [])
     .map(([k, v]) => [d.multi && d.classes.length > 1 ? `${k} (${c.cls.name})` : k, v]));
 }
 
@@ -1124,7 +1126,7 @@ function renderCombat(s, d) {
         ${!c.prof ? '<span class="bad-text">sem proficiência</span>' : ''}
         ${c.tags.map(t => `<span class="ok">✓ ${esc(t)}</span>`).join('')}
         ${c.notes.map(t => `<span class="atk-note">ⓘ ${esc(t)}</span>`).join('')}
-        ${w && d.masteryMax ? (() => {
+        ${w && w.mastery && d.masteryMax ? (() => {
           const on = !!s.mastery[w.id];
           const block = on ? '' : !c.prof ? 'sem proficiência' : masteryUsed >= d.masteryMax ? 'limite atingido' : '';
           return `<label class="chk-inline${block ? ' dis' : ''}" title="${esc(block ? `Maestria indisponível: ${block}` : MASTERY_DESC[w.mastery])}"><input type="checkbox" data-bind="mastery.${w.id}" ${on ? 'checked' : ''} ${block ? 'disabled' : ''}> Maestria: <b>${w.mastery}</b>${block ? ` <small class="muted">(${block})</small>` : ''}${on && !c.prof ? ' <small class="bad-text">⚠ sem proficiência</small>' : ''}</label>`;
@@ -1944,8 +1946,9 @@ const actions = {
   rollAttack(el, ev, s, d) {
     const atk = s.attacks[+el.dataset.i]; const c = attackCalc(d, s, atk);
     const r = rollD20(`Ataque: ${atk.name || (c.w ? c.w.name : 'Ataque')}`, c.hit);
-    const critMin = d.subs.has('champion') ? (d.lvlOf('fighter') >= 15 ? 18 : 19) : 20;
-    if (r.nat >= critMin && r.nat < 20) toast('Acerto crítico (Campeão)!', 'good');
+    let critMin = d.subs.has('champion') ? (d.lvlOf('fighter') >= 15 ? 18 : 19) : 20;
+    if (d.subs.has('gunslinger') && d.lvlOf('fighter') >= 18 && FIREARMS.has(atk.weaponId)) critMin = Math.min(critMin, 19);   // Intenção Cruel
+    if (r.nat >= critMin && r.nat < 20) toast(`Acerto crítico (${d.subs.has('gunslinger') && FIREARMS.has(atk.weaponId) && !d.subs.has('champion') ? 'Intenção Cruel' : 'Campeão'})!`, 'good');
     return false;
   },
   rollDmg(el, ev, s, d) {

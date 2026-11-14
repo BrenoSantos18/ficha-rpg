@@ -136,7 +136,7 @@ for (const c of D.CLASSES) {
   if (c.expertise) out(`- Especializações (\`skillProf\` = 2): ${[1, 2, 6, 9].map(l => `nível ${l}: ${c.expertise(l)}`).filter((x, i, a) => a.indexOf(x) === i).join(' · ')}`);
   if (c.masteryCount) out(`- Maestria em armas (\`mastery\`, só em armas com proficiência e que estejam em \`attacks\`): ${[1, 4, 10, 16].map(l => `nível ${l}: ${c.masteryCount(l)}`).join(' · ')}`);
   for (const ch of c.choices || []) out(`- \`classChoices.${ch.key}\` (${ch.label}): ${ch.options.map(o => `${code(o.id)} = ${o.name}`).join('; ')}`);
-  out(`- Subclasses (nível 3+): ${c.subclasses.map(s => `${code(s.id)} = ${s.name}`).join('; ')}`, '');
+  out(`- Subclasses (nível 3+): ${c.subclasses.map(s => `${code(s.id)} = ${s.name}${s.homebrew ? ` *(não oficial — homebrew de ${s.homebrew}; use só se o mestre permitir)*` : ''}`).join('; ')}`, '');
 }
 
 // Magia por nível
@@ -205,7 +205,7 @@ out('## 8. Equipamento', '',
   '- A armadura vestida vai no campo `armor` da ficha (e pode estar no inventário com `equipped: true`). Escudo: `shield: true`.',
   '- Itens fora destas listas são permitidos: use um nome em português e um peso aproximado.', '',
   '### Armas (`weaponId`)', '', '| Código | Nome | Categoria | Dano | Propriedades | Maestria | Peso (lb) |', '|---|---|---|---|---|---|---|',
-  ...D.WEAPONS.map(w => `| ${code(w.id)} | ${w.name} | ${w.cat === 'simple' ? 'Simples' : 'Marcial'} ${w.kind === 'm' ? 'corpo a corpo' : 'à distância'} | ${w.dmg} ${w.dtype} | ${w.props.join(', ') || '—'} | ${w.mastery} | ${w.weight} |`), '',
+  ...D.WEAPONS.map(w => `| ${code(w.id)} | ${w.name}${w.hb ? ' *(homebrew)*' : ''} | ${w.cat === 'firearm' ? 'Arma de fogo (homebrew, exige Pistoleiro)' : (w.cat === 'simple' ? 'Simples' : 'Marcial') + ' ' + (w.kind === 'm' ? 'corpo a corpo' : 'à distância')} | ${w.dmg} ${w.dtype} | ${w.props.join(', ') || '—'} | ${w.mastery || '—'} | ${w.weight} |`), '',
   '### Armaduras (`armor`)', '', '| Código | Nome | Tipo | CA | Peso (lb) |', '|---|---|---|---|---|',
   ...D.ARMORS.map(a => `| ${code(a.id)} | ${a.name} | ${a.type === 'none' ? '—' : D.ARMOR_TYPE_NAME[a.type]} | ${a.base}${a.type === 'light' ? ' + DES' : a.type === 'medium' ? ' + DES (máx. 2)' : a.type === 'none' ? ' + DES' : ''}${a.str ? ` (FOR ${a.str})` : ''}${a.stealth ? ', desvantagem em Furtividade' : ''} | ${a.weight || 0} |`),
   '| — | Escudo (`shield: true`) | — | +2 | 6 |', '',
