@@ -44,7 +44,7 @@ e, no final, gerar um arquivo JSON para o app "Grimório de Fichas". Siga o manu
 | `name` | texto | Nome do personagem. |
 | `player` | texto | Nome do jogador. |
 | `photo` | texto | Deixe `""` (a foto é adicionada no app). |
-| `level` | número | 1 a 20. |
+| `level` | número | Nível na classe **inicial** (1 a 20). Com multiclasse, o nível de personagem é a soma de `level` com os níveis em `multiclass` (máx. 20). |
 | `xp` | número | Pontos de experiência. Mínimo por nível: 1→0, 2→300, 3→900, 4→2700, 5→6500, 6→14000, 7→23000, 8→34000, 9→48000, 10→64000, 11→85000, 12→100000, 13→120000, 14→140000, 15→165000, 16→195000, 17→225000, 18→265000, 19→305000, 20→355000. |
 | `alignment` | texto | Um destes ou `""`: `Leal e Bom`, `Neutro e Bom`, `Caótico e Bom`, `Leal e Neutro`, `Neutro`, `Caótico e Neutro`, `Leal e Mau`, `Neutro e Mau`, `Caótico e Mau`. |
 | `species` | código | Ver seção 4. |
@@ -53,19 +53,20 @@ e, no final, gerar um arquivo JSON para o app "Grimório de Fichas". Siga o manu
 | `background` | código | Ver seção 5. |
 | `bgMode` | texto | `"21"` = +2 num atributo e +1 em outro; `"111"` = +1 nos três atributos do antecedente. |
 | `bg2`, `bg1` | código de atributo | Com `bgMode: "21"`: qual recebe +2 e qual recebe +1 (diferentes, e entre os 3 do antecedente). |
-| `classId` | código | Ver seção 6. |
+| `classId` | código | Classe **inicial** (a do 1º nível). Ver seção 6. |
 | `subclass` | código | Subclasse (a partir do nível 3), ou `""`. |
 | `classChoices` | objeto | Escolhas da classe (Clérigo e Druida têm `order`). Ex.: `{ "order": "protector" }`. |
 | `classSkills` | lista de códigos | Perícias escolhidas da lista da classe (quantidade exata da classe). Não repita as do antecedente. |
+| `multiclass` | lista | Classes **além** da inicial (seção 6.1). Deixe `[]` para personagem de uma classe só. Cada item: `{ "classId", "level", "subclass", "classChoices", "classSkills" }`. |
 | `abilityMethod` | texto | `"pointbuy"`, `"standard"` ou `"manual"` (rolagem). |
 | `abilities` | objeto | Valores **base** (antes do antecedente): `{ "str", "dex", "con", "int", "wis", "cha" }`. |
-| `abilityExtra` | objeto | Bônus extras por atributo (Aumentos de Atributo, talentos, itens). Mesmo formato. |
+| `abilityExtra` | objeto | Bônus extras por atributo vindos de **itens ou do mestre**. Mesmo formato. **Não** coloque aqui aumentos de talento (eles vão em `feats[].ab`). |
 | `saveProf` | objeto | Proficiências de salvaguarda **além** das da classe. Ex.: `{ "wis": true }` (talento Resiliente). |
 | `saveBonus` | número | Bônus em todas as salvaguardas (itens mágicos). Normalmente `0`. |
 | `skillProf` | objeto | Perícia → `1` (proficiente, vinda de talento/outra fonte) ou `2` (especialização). Ex.: `{ "stealth": 2 }`. |
 | `extraSkills`, `extraExpertise` | número | Proficiências/especializações extras dadas pelo mestre. Normalmente `0`. |
 | `hp` | objeto | `{ "current": null, "temp": 0, "maxOverride": null, "bonus": 0 }`. **Use `null` em `current`** (= PV cheios). `maxOverride` só se a mesa usar PV rolados. |
-| `hitDiceUsed` | número | Dados de vida gastos. Normalmente `0`. |
+| `hitDiceUsed` | número | Dados de vida gastos. Normalmente `0`. (Com multiclasse o app também usa `hitDiceUsedBy`, opcional.) |
 | `deathSaves` | objeto | `{ "s": 0, "f": 0 }`. |
 | `exhaustion` | número | 0 a 6. |
 | `inspiration` | sim/não | Inspiração Heroica. |
@@ -128,7 +129,7 @@ e, no final, gerar um arquivo JSON para o app "Grimório de Fichas". Siga o manu
 - **Arranjo padrão** (`"standard"`): distribua 15, 14, 13, 12, 10, 8, um valor por atributo.
 - **Rolagem** (`"manual"`): valores base de 3 a 18.
 - O antecedente soma +2/+1 ou +1/+1/+1 em cima da base (campos `bgMode`, `bg2`, `bg1`).
-- Aumentos de Atributo de nível (4, 8, 12, 16, 19 — Guerreiro também 6 e 14, Ladino também 10) vão em `abilityExtra` e devem ter um talento `asi` correspondente em `feats`.
+- Aumentos de Atributo de nível (4, 8, 12, 16, 19 — Guerreiro também 6 e 14, Ladino também 10) são talentos `asi` em `feats`, com a escolha em `ab` (seção 7). O app soma sozinho; **não** repita em `abilityExtra`.
 - Nenhum atributo final passa de 20 (exceto Dádivas Épicas e as capstones de nível 20 de Bárbaro e Monge, que o app soma sozinho).
 
 ## 4. Espécies (`species`)
@@ -284,9 +285,40 @@ Truques e magias preparadas de origem `"class"` precisam caber nestes números. 
 
 Formato de cada célula: **truques / magias preparadas / nível máximo**. O Mago pode ter mais magias no grimório (6 no nível 1 + 2 por nível), mas só marca como `prepared` a quantidade da tabela.
 
+### 6.1 Multiclasse
+
+A classe inicial (do 1º nível) fica em `classId`/`level`/`subclass`/`classChoices`/`classSkills`; as outras vão em `multiclass`:
+```json
+"multiclass": [ { "classId": "wizard", "level": 3, "subclass": "evoker", "classChoices": {}, "classSkills": [] } ]
+```
+- **Pré-requisito:** 13 no atributo principal da nova classe **e** no de cada classe que o personagem já tem (tabela abaixo). O app trava a multiclasse sem isso.
+- **Nível de personagem** = soma dos níveis (máx. 20). Ele define o bônus de proficiência; recursos, características, magias e vagas de talento contam pelo nível **em cada classe**.
+- **Não repita** a classe inicial nem a mesma classe duas vezes em `multiclass`. Subclasse só a partir do nível 3 **naquela classe**.
+- **PV:** dado máximo da classe inicial no 1º nível; nos demais níveis, a média do dado de cada classe (o app calcula).
+- **Salvaguardas:** só as da classe inicial. As demais classes dão só as proficiências da tabela abaixo; `classSkills` de uma multiclasse só existe para Bardo, Patrulheiro e Ladino (quantidade indicada).
+- **Magias:** cada classe conjuradora tem atributo, CD, truques, preparadas, lista e nível máximo próprios — use os limites da seção 6 pelo nível **daquela classe**. Em cada magia de origem `"class"`, informe a classe em `classId` (ex.: `"classId": "wizard"`). Sem `classId`, a magia conta para a classe inicial.
+- **Espaços de magia** com duas ou mais classes conjuradoras: tabela de multiclasse (nível de conjurador = níveis de Bardo, Clérigo, Druida, Feiticeiro e Mago + metade, arredondada para cima, de Paladino e Patrulheiro + um terço, arredondado para baixo, de Cavaleiro Arcano e Trapaceiro Arcano). Espaços de Pacto do Bruxo ficam separados. O app calcula.
+
+| Classe | Pré-requisito | Proficiências ao entrar por multiclasse |
+|---|---|---|
+| `barbarian` Bárbaro | FOR 13 | escudos, armas marciais |
+| `bard` Bardo | CAR 13 | armadura leve, 1 perícia qualquer (`classSkills`), 1 Instrumento Musical |
+| `cleric` Clérigo | SAB 13 | armadura leve, armadura média, escudos |
+| `druid` Druida | SAB 13 | armadura leve, escudos |
+| `fighter` Guerreiro | FOR ou DES 13 | armadura leve, armadura média, escudos, armas marciais |
+| `monk` Monge | DES e SAB 13 | nenhuma (só o Dado de Vida) |
+| `paladin` Paladino | FOR e CAR 13 | armadura leve, armadura média, escudos, armas marciais |
+| `ranger` Patrulheiro | DES e SAB 13 | armadura leve, armadura média, escudos, armas marciais, 1 perícia da lista da classe (`classSkills`) |
+| `rogue` Ladino | DES 13 | armadura leve, 1 perícia da lista da classe (`classSkills`), Ferramentas de Ladrão |
+| `sorcerer` Feiticeiro | CAR 13 | nenhuma (só o Dado de Vida) |
+| `warlock` Bruxo | CAR 13 | armadura leve |
+| `wizard` Mago | INT 13 | nenhuma (só o Dado de Vida) |
+
 ## 7. Talentos (`feats`)
 
-Formato de cada item: `{ "id": "", "featId": "alert", "note": "Nível 4", "name": "", "desc": "" }`.
+Formato de cada item: `{ "id": "", "featId": "alert", "note": "Nível 4", "ab": {}, "name": "", "desc": "" }`.
+- `ab`: o aumento de atributo do talento, aplicado automaticamente (até 20; 30 nas Dádivas Épicas). Aumento no Valor de Atributo (`asi`): `{ "str": 2 }` (+2 em um) ou `{ "str": 1, "con": 1 }` (+1 em dois). Talentos gerais e Dádivas: +1 em **um** dos atributos permitidos (coluna "Aumento" abaixo), ex.: `{ "dex": 1 }`. Talentos de Origem e Estilos de Luta não têm aumento: use `{}`.
+- Resiliente (`resilient`): o atributo escolhido em `ab` também ganha proficiência em salvaguarda automaticamente.
 - `featId`: um código da tabela abaixo. `note`: de onde veio (ex.: "Nível 4").
 - Talento inventado/homebrew: deixe `featId` vazio e preencha `name` e `desc`.
 - O talento do antecedente e o do Humano (`speciesChoices.versatile`) **não** entram aqui e não ocupam vaga.
@@ -295,84 +327,84 @@ Formato de cada item: `{ "id": "", "featId": "alert", "note": "Nível 4", "name"
 - Não repita talentos, exceto `asi`, `skilled`, `mi-cleric`, `mi-druid`, `mi-wizard` e `elemental-adept`.
 - O app trava talentos sem vaga ou sem pré-requisito e mostra aviso nos que já estiverem na ficha fora da regra.
 
-| Código | Nome | Categoria | Pré-requisito | Efeito |
-|---|---|---|---|---|
-| `alert` | Alerta | Origem | — | Some seu Bônus de Proficiência à Iniciativa. Pode trocar a iniciativa com um aliado voluntário. |
-| `crafter` | Artífice | Origem | — | Proficiência em 3 Ferramentas de Artesão; 20% de desconto em itens não mágicos; criação rápida de itens após descanso longo. |
-| `healer` | Curandeiro | Origem | — | Ação Utilizar com Kit de Curandeiro: a criatura gasta um Dado de Vida e recupera PV (+BP). Rerola 1s em dados de cura. |
-| `lucky` | Sortudo | Origem | — | Pontos de Sorte = BP por descanso longo. Gaste 1 para ter Vantagem num Teste de D20 ou impor Desvantagem num ataque contra você. |
-| `mi-cleric` | Iniciado em Magia (Clérigo) | Origem | — | 2 truques e 1 magia de 1º nível da lista de Clérigo (INT, SAB ou CAR). A magia de 1º nível pode ser lançada 1x por descanso longo sem espaço. |
-| `mi-druid` | Iniciado em Magia (Druida) | Origem | — | 2 truques e 1 magia de 1º nível da lista de Druida (INT, SAB ou CAR). A magia de 1º nível pode ser lançada 1x por descanso longo sem espaço. |
-| `mi-wizard` | Iniciado em Magia (Mago) | Origem | — | 2 truques e 1 magia de 1º nível da lista de Mago (INT, SAB ou CAR). A magia de 1º nível pode ser lançada 1x por descanso longo sem espaço. |
-| `musician` | Músico | Origem | — | Proficiência em 3 instrumentos musicais. Ao terminar um descanso, concede Inspiração Heroica a aliados (até BP) que ouviram sua música. |
-| `savage-attacker` | Atacante Selvagem | Origem | — | Uma vez por turno, ao acertar com uma arma, role os dados de dano duas vezes e use o maior. |
-| `skilled` | Habilidoso | Origem | — | Proficiência em qualquer combinação de 3 perícias ou ferramentas (marque-as na lista de perícias). |
-| `tavern-brawler` | Brigão de Taverna | Origem | — | Ataque Desarmado: 1d4 + FOR; rerola 1s no dano; proficiência com armas improvisadas; empurrar 1,5 m uma vez por turno. |
-| `tough` | Robusto | Origem | — | PV máximos +2 por nível (já somado). |
-| `fs-archery` | Estilo: Arquearia | Estilo de Luta | Estilo de Luta (classe) | +2 nas jogadas de ataque com armas à distância (já somado). |
-| `fs-blind` | Estilo: Combate às Cegas | Estilo de Luta | Estilo de Luta (classe) | Percepção às Cegas 3 m. |
-| `fs-defense` | Estilo: Defesa | Estilo de Luta | Estilo de Luta (classe) | +1 na CA enquanto usar armadura (já somado). |
-| `fs-dueling` | Estilo: Duelismo | Estilo de Luta | Estilo de Luta (classe) | +2 de dano com arma corpo a corpo em uma mão e nenhuma outra arma (aparece como lembrete nos ataques com armas de uma mão ou versáteis). |
-| `fs-gwf` | Estilo: Armas Grandes | Estilo de Luta | Estilo de Luta (classe) | Trate 1 e 2 nos dados de dano de armas de Duas Mãos/Versáteis como 3. |
-| `fs-interception` | Estilo: Interceptação | Estilo de Luta | Estilo de Luta (classe) | Reação: reduz dano a um aliado próximo em 1d10 + BP. |
-| `fs-protection` | Estilo: Proteção | Estilo de Luta | Estilo de Luta (classe) | Reação com escudo: impõe Desvantagem a um ataque contra aliado próximo. |
-| `fs-thrown` | Estilo: Armas de Arremesso | Estilo de Luta | Estilo de Luta (classe) | +2 de dano com armas de Arremesso em ataques à distância. |
-| `fs-twf` | Estilo: Duas Armas | Estilo de Luta | Estilo de Luta (classe) | Some o modificador ao dano do ataque extra da propriedade Leve. |
-| `fs-unarmed` | Estilo: Luta Desarmada | Estilo de Luta | Estilo de Luta (classe) | Ataque Desarmado 1d6 + FOR (1d8 sem armas/escudo); 1d4 a criatura agarrada. |
-| `asi` | Aumento no Valor de Atributo | Geral | Nível 4+ | +2 em um atributo ou +1 em dois (aplique em "Bônus extra" dos atributos). |
-| `actor` | Ator | Geral | Nível 4+; CAR 13+ | +1 CAR. Vantagem em Enganação/Atuação ao se passar por outro; imita sons. |
-| `athlete` | Atleta | Geral | Nível 4+; FOR ou DES 13+ | +1 FOR ou DES. Deslocamento de escalada; levantar gasta 1,5 m; salto com corrida após 1,5 m. |
-| `charger` | Investida | Geral | Nível 4+; FOR ou DES 13+ | +1 FOR ou DES. Disparada +3 m; ataque após mover 3 m em linha reta: +1d8 ou empurrar 3 m. |
-| `chef` | Chef | Geral | Nível 4+ | +1 CON ou SAB. Prof. utensílios de cozinheiro; petiscos dão PV temporários; cura extra em descanso curto. |
-| `crossbow-expert` | Especialista em Bestas | Geral | Nível 4+; DES 13+ | +1 DES. Ignora Recarga; sem Desvantagem corpo a corpo; mod. no ataque extra Leve. |
-| `crusher` | Esmagador | Geral | Nível 4+; FOR ou CON 13+ | +1 FOR ou CON. Empurra 1,5 m com dano Contundente; críticos dão Vantagem aos aliados. |
-| `defensive-duelist` | Duelista Defensivo | Geral | Nível 4+; DES 13+ | +1 DES. Reação com arma Acuidade: +BP na CA contra um ataque. |
-| `dual-wielder` | Combatente com Duas Armas | Geral | Nível 4+; FOR ou DES 13+ | +1 FOR ou DES. Ataque extra com arma não Leve; sacar duas armas. |
-| `durable` | Durável | Geral | Nível 4+ | +1 CON. Vantagem em salvaguardas contra morte; Ação Bônus para gastar Dado de Vida. |
-| `elemental-adept` | Adepto Elemental | Geral | Nível 4+; Conjuração ou Magia de Pacto | +1 INT, SAB ou CAR. Ignora resistência ao tipo escolhido; 1s viram 2s. |
-| `fey-touched` | Tocado pelas Fadas | Geral | Nível 4+ | +1 INT, SAB ou CAR. Passo Nebuloso + uma magia de 1º nível de Adivinhação/Encantamento. |
-| `grappler` | Agarrador | Geral | Nível 4+; FOR ou DES 13+ | +1 FOR ou DES. Soco e Agarrar no mesmo ataque; Vantagem contra agarrados. |
-| `great-weapon-master` | Mestre de Armas Grandes | Geral | Nível 4+; FOR 13+ | +1 FOR. Dano extra = BP com armas Pesadas; ataque bônus após crítico ou abate. |
-| `heavily-armored` | Armadura Pesada | Geral | Nível 4+; treinamento em armadura média | +1 FOR ou CON. Treinamento com armaduras pesadas. |
-| `heavy-armor-master` | Mestre de Armadura Pesada | Geral | Nível 4+; treinamento em armadura pesada | +1 FOR ou CON. Reduz dano físico em BP usando armadura pesada. |
-| `inspiring-leader` | Líder Inspirador | Geral | Nível 4+; SAB ou CAR 13+ | +1 SAB ou CAR. Após descanso, até 6 aliados ganham PV temporários = nível + mod. |
-| `keen-mind` | Mente Afiada | Geral | Nível 4+; INT 13+ | +1 INT. Proficiência/Especialização em uma perícia de INT; Estudar como Ação Bônus. |
-| `lightly-armored` | Armadura Leve | Geral | Nível 4+ | +1 FOR ou DES. Treinamento com armaduras leves e escudos. |
-| `mage-slayer` | Matador de Magos | Geral | Nível 4+ | +1 FOR ou DES. Quebra Concentração; passar automaticamente em salvaguarda mental 1x. |
-| `martial-weapon-training` | Treinamento com Armas Marciais | Geral | Nível 4+ | +1 FOR ou DES. Proficiência com armas marciais. |
-| `medium-armor-master` | Mestre de Armadura Média | Geral | Nível 4+; treinamento em armadura média | +1 FOR ou DES. DES máx. 3 na armadura média. |
-| `moderately-armored` | Armadura Média | Geral | Nível 4+; treinamento em armadura leve | +1 FOR ou DES. Treinamento com armaduras médias. |
-| `mounted-combatant` | Combatente Montado | Geral | Nível 4+ | +1 FOR, DES ou SAB. Vantagem contra criaturas não montadas menores que a montaria. |
-| `observant` | Observador | Geral | Nível 4+; INT ou SAB 13+ | +1 INT ou SAB. Proficiência/Especialização em Intuição, Investigação ou Percepção; Busca como Ação Bônus. |
-| `piercer` | Perfurador | Geral | Nível 4+; FOR ou DES 13+ | +1 FOR ou DES. Rerola um dado de dano Perfurante; crítico +1 dado. |
-| `poisoner` | Envenenador | Geral | Nível 4+ | +1 DES ou INT. Ignora resistência a Veneno; prepara venenos. |
-| `polearm-master` | Mestre de Armas de Haste | Geral | Nível 4+; FOR ou DES 13+ | +1 FOR ou DES. Ataque bônus com o cabo (1d4); ataque de oportunidade ao entrar no alcance. |
-| `resilient` | Resiliente | Geral | Nível 4+ | +1 em um atributo e proficiência na salvaguarda dele (marque a salvaguarda). |
-| `ritual-caster` | Conjurador Ritualístico | Geral | Nível 4+; INT ou SAB ou CAR 13+ | +1 INT, SAB ou CAR. Magias de ritual preparadas; ritual rápido 1x/descanso longo. |
-| `sentinel` | Sentinela | Geral | Nível 4+; FOR ou DES 13+ | +1 FOR ou DES. Ataques de oportunidade param movimento; reage a ataques em aliados. |
-| `shadow-touched` | Tocado pelas Sombras | Geral | Nível 4+ | +1 INT, SAB ou CAR. Invisibilidade + uma magia de 1º nível de Ilusão/Necromancia. |
-| `sharpshooter` | Atirador de Elite | Geral | Nível 4+; DES 13+ | +1 DES. Ignora cobertura parcial; sem Desvantagem em longo alcance ou corpo a corpo. |
-| `shield-master` | Mestre de Escudo | Geral | Nível 4+; treinamento em escudos | +1 FOR. Pancada com escudo; Evasão com escudo em salvaguardas de DES. |
-| `skill-expert` | Perito | Geral | Nível 4+ | +1 em qualquer atributo. Proficiência em uma perícia e Especialização em outra. |
-| `skulker` | Espreitador | Geral | Nível 4+; DES 13+ | +1 DES. Percepção às Cegas 3 m; não se revela ao errar ataque. |
-| `slasher` | Retalhador | Geral | Nível 4+; FOR ou DES 13+ | +1 FOR ou DES. Reduz deslocamento em 3 m; críticos impõem Desvantagem. |
-| `speedy` | Veloz | Geral | Nível 4+; DES ou CON 13+ | +1 DES ou CON. +3 m de deslocamento (já somado); Disparada ignora terreno difícil. |
-| `spell-sniper` | Franco-Atirador Mágico | Geral | Nível 4+; Conjuração ou Magia de Pacto | +1 INT, SAB ou CAR. +18 m de alcance em magias; ignora cobertura parcial. |
-| `telekinetic` | Telecinético | Geral | Nível 4+ | +1 INT, SAB ou CAR. Mãos Mágicas invisível; empurrar 1,5 m como Ação Bônus. |
-| `telepathic` | Telepático | Geral | Nível 4+ | +1 INT, SAB ou CAR. Telepatia 18 m; Detectar Pensamentos 1x/descanso longo. |
-| `war-caster` | Conjurador de Guerra | Geral | Nível 4+; Conjuração ou Magia de Pacto | +1 INT, SAB ou CAR. Vantagem em Concentração; magia como ataque de oportunidade. |
-| `weapon-master` | Mestre de Armas | Geral | Nível 4+; FOR ou DES 13+ | +1 FOR ou DES. Usa a propriedade de Maestria de uma arma adicional. |
-| `boon-combat` | Dádiva da Proeza em Combate | Dádiva Épica | Nível 19+ | +1 em atributo (máx. 30). 1x por turno, transforma um erro em acerto. |
-| `boon-dimensional` | Dádiva da Viagem Dimensional | Dádiva Épica | Nível 19+ | +1 em atributo (máx. 30). Teleporte 9 m após Atacar ou Magia. |
-| `boon-fate` | Dádiva do Destino | Dádiva Épica | Nível 19+ | +1 em atributo (máx. 30). Adiciona/subtrai 2d4 de um Teste de D20. |
-| `boon-fortitude` | Dádiva da Fortitude | Dádiva Épica | Nível 19+ | +1 em atributo (máx. 30). +40 PV máximos. |
-| `boon-irresistible` | Dádiva da Ofensiva Irresistível | Dádiva Épica | Nível 19+ | +1 FOR ou DES (máx. 30). Ignora resistência a dano físico. |
-| `boon-recovery` | Dádiva da Recuperação | Dádiva Épica | Nível 19+ | +1 em atributo (máx. 30). Evita cair a 0 PV 1x; dado de cura 10d10. |
-| `boon-skill` | Dádiva da Perícia | Dádiva Épica | Nível 19+ | +1 em atributo (máx. 30). Proficiência em todas as perícias e Especialização em uma. |
-| `boon-speed` | Dádiva da Velocidade | Dádiva Épica | Nível 19+ | +1 em atributo (máx. 30). +9 m de deslocamento. |
-| `boon-spell-recall` | Dádiva da Recordação de Magia | Dádiva Épica | Nível 19+ | +1 INT, SAB ou CAR (máx. 30). Lança magia de 1º–4º nível sem gastar espaço 1x. |
-| `boon-night` | Dádiva do Espírito Noturno | Dádiva Épica | Nível 19+ | +1 em atributo (máx. 30). Invisível na Penumbra/Escuridão. |
-| `boon-truesight` | Dádiva da Visão Verdadeira | Dádiva Épica | Nível 19+ | +1 em atributo (máx. 30). Visão Verdadeira 18 m. |
+| Código | Nome | Categoria | Pré-requisito | Aumento (`ab`) | Efeito |
+|---|---|---|---|---|---|
+| `alert` | Alerta | Origem | — | — | Some seu Bônus de Proficiência à Iniciativa. Pode trocar a iniciativa com um aliado voluntário. |
+| `crafter` | Artífice | Origem | — | — | Proficiência em 3 Ferramentas de Artesão; 20% de desconto em itens não mágicos; criação rápida de itens após descanso longo. |
+| `healer` | Curandeiro | Origem | — | — | Ação Utilizar com Kit de Curandeiro: a criatura gasta um Dado de Vida e recupera PV (+BP). Rerola 1s em dados de cura. |
+| `lucky` | Sortudo | Origem | — | — | Pontos de Sorte = BP por descanso longo. Gaste 1 para ter Vantagem num Teste de D20 ou impor Desvantagem num ataque contra você. |
+| `mi-cleric` | Iniciado em Magia (Clérigo) | Origem | — | — | 2 truques e 1 magia de 1º nível da lista de Clérigo (INT, SAB ou CAR). A magia de 1º nível pode ser lançada 1x por descanso longo sem espaço. |
+| `mi-druid` | Iniciado em Magia (Druida) | Origem | — | — | 2 truques e 1 magia de 1º nível da lista de Druida (INT, SAB ou CAR). A magia de 1º nível pode ser lançada 1x por descanso longo sem espaço. |
+| `mi-wizard` | Iniciado em Magia (Mago) | Origem | — | — | 2 truques e 1 magia de 1º nível da lista de Mago (INT, SAB ou CAR). A magia de 1º nível pode ser lançada 1x por descanso longo sem espaço. |
+| `musician` | Músico | Origem | — | — | Proficiência em 3 instrumentos musicais. Ao terminar um descanso, concede Inspiração Heroica a aliados (até BP) que ouviram sua música. |
+| `savage-attacker` | Atacante Selvagem | Origem | — | — | Uma vez por turno, ao acertar com uma arma, role os dados de dano duas vezes e use o maior. |
+| `skilled` | Habilidoso | Origem | — | — | Proficiência em qualquer combinação de 3 perícias ou ferramentas (marque-as na lista de perícias). |
+| `tavern-brawler` | Brigão de Taverna | Origem | — | — | Ataque Desarmado: 1d4 + FOR; rerola 1s no dano; proficiência com armas improvisadas; empurrar 1,5 m uma vez por turno. |
+| `tough` | Robusto | Origem | — | — | PV máximos +2 por nível (já somado). |
+| `fs-archery` | Estilo: Arquearia | Estilo de Luta | Estilo de Luta (classe) | — | +2 nas jogadas de ataque com armas à distância (já somado). |
+| `fs-blind` | Estilo: Combate às Cegas | Estilo de Luta | Estilo de Luta (classe) | — | Percepção às Cegas 3 m. |
+| `fs-defense` | Estilo: Defesa | Estilo de Luta | Estilo de Luta (classe) | — | +1 na CA enquanto usar armadura (já somado). |
+| `fs-dueling` | Estilo: Duelismo | Estilo de Luta | Estilo de Luta (classe) | — | +2 de dano com arma corpo a corpo em uma mão e nenhuma outra arma (aparece como lembrete nos ataques com armas de uma mão ou versáteis). |
+| `fs-gwf` | Estilo: Armas Grandes | Estilo de Luta | Estilo de Luta (classe) | — | Trate 1 e 2 nos dados de dano de armas de Duas Mãos/Versáteis como 3. |
+| `fs-interception` | Estilo: Interceptação | Estilo de Luta | Estilo de Luta (classe) | — | Reação: reduz dano a um aliado próximo em 1d10 + BP. |
+| `fs-protection` | Estilo: Proteção | Estilo de Luta | Estilo de Luta (classe) | — | Reação com escudo: impõe Desvantagem a um ataque contra aliado próximo. |
+| `fs-thrown` | Estilo: Armas de Arremesso | Estilo de Luta | Estilo de Luta (classe) | — | +2 de dano com armas de Arremesso em ataques à distância. |
+| `fs-twf` | Estilo: Duas Armas | Estilo de Luta | Estilo de Luta (classe) | — | Some o modificador ao dano do ataque extra da propriedade Leve. |
+| `fs-unarmed` | Estilo: Luta Desarmada | Estilo de Luta | Estilo de Luta (classe) | — | Ataque Desarmado 1d6 + FOR (1d8 sem armas/escudo); 1d4 a criatura agarrada. |
+| `asi` | Aumento no Valor de Atributo | Geral | Nível 4+ | +2 em um ou +1 em dois (qualquer) | +2 em um atributo ou +1 em dois (até 20; aplicado automaticamente). |
+| `actor` | Ator | Geral | Nível 4+; CAR 13+ | +1 em CAR | +1 CAR. Vantagem em Enganação/Atuação ao se passar por outro; imita sons. |
+| `athlete` | Atleta | Geral | Nível 4+; FOR ou DES 13+ | +1 em FOR ou DES | +1 FOR ou DES. Deslocamento de escalada; levantar gasta 1,5 m; salto com corrida após 1,5 m. |
+| `charger` | Investida | Geral | Nível 4+; FOR ou DES 13+ | +1 em FOR ou DES | +1 FOR ou DES. Disparada +3 m; ataque após mover 3 m em linha reta: +1d8 ou empurrar 3 m. |
+| `chef` | Chef | Geral | Nível 4+ | +1 em CON ou SAB | +1 CON ou SAB. Prof. utensílios de cozinheiro; petiscos dão PV temporários; cura extra em descanso curto. |
+| `crossbow-expert` | Especialista em Bestas | Geral | Nível 4+; DES 13+ | +1 em DES | +1 DES. Ignora Recarga; sem Desvantagem corpo a corpo; mod. no ataque extra Leve. |
+| `crusher` | Esmagador | Geral | Nível 4+; FOR ou CON 13+ | +1 em FOR ou CON | +1 FOR ou CON. Empurra 1,5 m com dano Contundente; críticos dão Vantagem aos aliados. |
+| `defensive-duelist` | Duelista Defensivo | Geral | Nível 4+; DES 13+ | +1 em DES | +1 DES. Reação com arma Acuidade: +BP na CA contra um ataque. |
+| `dual-wielder` | Combatente com Duas Armas | Geral | Nível 4+; FOR ou DES 13+ | +1 em FOR ou DES | +1 FOR ou DES. Ataque extra com arma não Leve; sacar duas armas. |
+| `durable` | Durável | Geral | Nível 4+ | +1 em CON | +1 CON. Vantagem em salvaguardas contra morte; Ação Bônus para gastar Dado de Vida. |
+| `elemental-adept` | Adepto Elemental | Geral | Nível 4+; Conjuração ou Magia de Pacto | +1 em INT ou SAB ou CAR | +1 INT, SAB ou CAR. Ignora resistência ao tipo escolhido; 1s viram 2s. |
+| `fey-touched` | Tocado pelas Fadas | Geral | Nível 4+ | +1 em INT ou SAB ou CAR | +1 INT, SAB ou CAR. Passo Nebuloso + uma magia de 1º nível de Adivinhação/Encantamento. |
+| `grappler` | Agarrador | Geral | Nível 4+; FOR ou DES 13+ | +1 em FOR ou DES | +1 FOR ou DES. Soco e Agarrar no mesmo ataque; Vantagem contra agarrados. |
+| `great-weapon-master` | Mestre de Armas Grandes | Geral | Nível 4+; FOR 13+ | +1 em FOR | +1 FOR. Dano extra = BP com armas Pesadas; ataque bônus após crítico ou abate. |
+| `heavily-armored` | Armadura Pesada | Geral | Nível 4+; treinamento em armadura média | +1 em FOR ou CON | +1 FOR ou CON. Treinamento com armaduras pesadas. |
+| `heavy-armor-master` | Mestre de Armadura Pesada | Geral | Nível 4+; treinamento em armadura pesada | +1 em FOR ou CON | +1 FOR ou CON. Reduz dano físico em BP usando armadura pesada. |
+| `inspiring-leader` | Líder Inspirador | Geral | Nível 4+; SAB ou CAR 13+ | +1 em SAB ou CAR | +1 SAB ou CAR. Após descanso, até 6 aliados ganham PV temporários = nível + mod. |
+| `keen-mind` | Mente Afiada | Geral | Nível 4+; INT 13+ | +1 em INT | +1 INT. Proficiência/Especialização em uma perícia de INT; Estudar como Ação Bônus. |
+| `lightly-armored` | Armadura Leve | Geral | Nível 4+ | +1 em FOR ou DES | +1 FOR ou DES. Treinamento com armaduras leves e escudos. |
+| `mage-slayer` | Matador de Magos | Geral | Nível 4+ | +1 em FOR ou DES | +1 FOR ou DES. Quebra Concentração; passar automaticamente em salvaguarda mental 1x. |
+| `martial-weapon-training` | Treinamento com Armas Marciais | Geral | Nível 4+ | +1 em FOR ou DES | +1 FOR ou DES. Proficiência com armas marciais. |
+| `medium-armor-master` | Mestre de Armadura Média | Geral | Nível 4+; treinamento em armadura média | +1 em FOR ou DES | +1 FOR ou DES. DES máx. 3 na armadura média. |
+| `moderately-armored` | Armadura Média | Geral | Nível 4+; treinamento em armadura leve | +1 em FOR ou DES | +1 FOR ou DES. Treinamento com armaduras médias. |
+| `mounted-combatant` | Combatente Montado | Geral | Nível 4+ | +1 em FOR ou DES ou SAB | +1 FOR, DES ou SAB. Vantagem contra criaturas não montadas menores que a montaria. |
+| `observant` | Observador | Geral | Nível 4+; INT ou SAB 13+ | +1 em INT ou SAB | +1 INT ou SAB. Proficiência/Especialização em Intuição, Investigação ou Percepção; Busca como Ação Bônus. |
+| `piercer` | Perfurador | Geral | Nível 4+; FOR ou DES 13+ | +1 em FOR ou DES | +1 FOR ou DES. Rerola um dado de dano Perfurante; crítico +1 dado. |
+| `poisoner` | Envenenador | Geral | Nível 4+ | +1 em DES ou INT | +1 DES ou INT. Ignora resistência a Veneno; prepara venenos. |
+| `polearm-master` | Mestre de Armas de Haste | Geral | Nível 4+; FOR ou DES 13+ | +1 em FOR ou DES | +1 FOR ou DES. Ataque bônus com o cabo (1d4); ataque de oportunidade ao entrar no alcance. |
+| `resilient` | Resiliente | Geral | Nível 4+ | +1 em qualquer | +1 em um atributo e proficiência na salvaguarda dele (aplicados automaticamente). |
+| `ritual-caster` | Conjurador Ritualístico | Geral | Nível 4+; INT ou SAB ou CAR 13+ | +1 em INT ou SAB ou CAR | +1 INT, SAB ou CAR. Magias de ritual preparadas; ritual rápido 1x/descanso longo. |
+| `sentinel` | Sentinela | Geral | Nível 4+; FOR ou DES 13+ | +1 em FOR ou DES | +1 FOR ou DES. Ataques de oportunidade param movimento; reage a ataques em aliados. |
+| `shadow-touched` | Tocado pelas Sombras | Geral | Nível 4+ | +1 em INT ou SAB ou CAR | +1 INT, SAB ou CAR. Invisibilidade + uma magia de 1º nível de Ilusão/Necromancia. |
+| `sharpshooter` | Atirador de Elite | Geral | Nível 4+; DES 13+ | +1 em DES | +1 DES. Ignora cobertura parcial; sem Desvantagem em longo alcance ou corpo a corpo. |
+| `shield-master` | Mestre de Escudo | Geral | Nível 4+; treinamento em escudos | +1 em FOR | +1 FOR. Pancada com escudo; Evasão com escudo em salvaguardas de DES. |
+| `skill-expert` | Perito | Geral | Nível 4+ | +1 em qualquer | +1 em qualquer atributo. Proficiência em uma perícia e Especialização em outra. |
+| `skulker` | Espreitador | Geral | Nível 4+; DES 13+ | +1 em DES | +1 DES. Percepção às Cegas 3 m; não se revela ao errar ataque. |
+| `slasher` | Retalhador | Geral | Nível 4+; FOR ou DES 13+ | +1 em FOR ou DES | +1 FOR ou DES. Reduz deslocamento em 3 m; críticos impõem Desvantagem. |
+| `speedy` | Veloz | Geral | Nível 4+; DES ou CON 13+ | +1 em DES ou CON | +1 DES ou CON. +3 m de deslocamento (já somado); Disparada ignora terreno difícil. |
+| `spell-sniper` | Franco-Atirador Mágico | Geral | Nível 4+; Conjuração ou Magia de Pacto | +1 em INT ou SAB ou CAR | +1 INT, SAB ou CAR. +18 m de alcance em magias; ignora cobertura parcial. |
+| `telekinetic` | Telecinético | Geral | Nível 4+ | +1 em INT ou SAB ou CAR | +1 INT, SAB ou CAR. Mãos Mágicas invisível; empurrar 1,5 m como Ação Bônus. |
+| `telepathic` | Telepático | Geral | Nível 4+ | +1 em INT ou SAB ou CAR | +1 INT, SAB ou CAR. Telepatia 18 m; Detectar Pensamentos 1x/descanso longo. |
+| `war-caster` | Conjurador de Guerra | Geral | Nível 4+; Conjuração ou Magia de Pacto | +1 em INT ou SAB ou CAR | +1 INT, SAB ou CAR. Vantagem em Concentração; magia como ataque de oportunidade. |
+| `weapon-master` | Mestre de Armas | Geral | Nível 4+; FOR ou DES 13+ | +1 em FOR ou DES | +1 FOR ou DES. Usa a propriedade de Maestria de uma arma adicional. |
+| `boon-combat` | Dádiva da Proeza em Combate | Dádiva Épica | Nível 19+ | +1 em qualquer (até 30) | +1 em atributo (máx. 30). 1x por turno, transforma um erro em acerto. |
+| `boon-dimensional` | Dádiva da Viagem Dimensional | Dádiva Épica | Nível 19+ | +1 em qualquer (até 30) | +1 em atributo (máx. 30). Teleporte 9 m após Atacar ou Magia. |
+| `boon-fate` | Dádiva do Destino | Dádiva Épica | Nível 19+ | +1 em qualquer (até 30) | +1 em atributo (máx. 30). Adiciona/subtrai 2d4 de um Teste de D20. |
+| `boon-fortitude` | Dádiva da Fortitude | Dádiva Épica | Nível 19+ | +1 em qualquer (até 30) | +1 em atributo (máx. 30). +40 PV máximos. |
+| `boon-irresistible` | Dádiva da Ofensiva Irresistível | Dádiva Épica | Nível 19+ | +1 em FOR ou DES (até 30) | +1 FOR ou DES (máx. 30). Ignora resistência a dano físico. |
+| `boon-recovery` | Dádiva da Recuperação | Dádiva Épica | Nível 19+ | +1 em qualquer (até 30) | +1 em atributo (máx. 30). Evita cair a 0 PV 1x; dado de cura 10d10. |
+| `boon-skill` | Dádiva da Perícia | Dádiva Épica | Nível 19+ | +1 em qualquer (até 30) | +1 em atributo (máx. 30). Proficiência em todas as perícias e Especialização em uma. |
+| `boon-speed` | Dádiva da Velocidade | Dádiva Épica | Nível 19+ | +1 em qualquer (até 30) | +1 em atributo (máx. 30). +9 m de deslocamento. |
+| `boon-spell-recall` | Dádiva da Recordação de Magia | Dádiva Épica | Nível 19+ | +1 em INT ou SAB ou CAR (até 30) | +1 INT, SAB ou CAR (máx. 30). Lança magia de 1º–4º nível sem gastar espaço 1x. |
+| `boon-night` | Dádiva do Espírito Noturno | Dádiva Épica | Nível 19+ | +1 em qualquer (até 30) | +1 em atributo (máx. 30). Invisível na Penumbra/Escuridão. |
+| `boon-truesight` | Dádiva da Visão Verdadeira | Dádiva Épica | Nível 19+ | +1 em qualquer (até 30) | +1 em atributo (máx. 30). Visão Verdadeira 18 m. |
 
 ## 8. Equipamento
 
@@ -542,6 +574,7 @@ Formato de cada magia (copie `name`, `level`, `school` do catálogo abaixo; os d
   - `"extra"` — de espécie, talento ou item (ex.: Luz do Aasimar, Iniciado em Magia). Não conta nos limites.
 - `prepared`: truques sempre `true`; para `"class"`, marque `true` só até o limite; `"always"` e `"extra"` usam `true`.
 - `level`: 0 = truque. Não escolha magias acima do nível máximo da classe.
+- `classId`: classe dona da magia (só importa com multiclasse; padrão = classe inicial).
 - Listas: Cavaleiro Arcano e Trapaceiro Arcano usam a lista de Mago. Bardo a partir do nível 10 pode escolher também das listas de Clérigo, Druida e Mago.
 
 ### Catálogo (339 magias do SRD 5.2)
@@ -944,9 +977,10 @@ Formato de cada magia (copie `name`, `level`, `school` do catálogo abaixo; os d
 - [ ] Truques e magias preparadas `"class"` dentro da tabela; nenhuma magia acima do nível máximo.
 - [ ] `hp.current` é `null`.
 - [ ] Cada arma tem `weaponId` no inventário e um ataque em `attacks`.
-- [ ] Aumentos de Atributo em `abilityExtra` batem com talentos `asi` em `feats`.
+- [ ] Todo talento com aumento de atributo tem `ab` preenchido (e nada disso repetido em `abilityExtra`).
 - [ ] Quantidade de talentos e Estilos de Luta dentro das vagas do nível, com pré-requisitos atendidos.
 - [ ] Maestrias (`mastery`) dentro do limite da classe e só em armas com proficiência.
+- [ ] Multiclasse: pré-requisitos atendidos, soma dos níveis ≤ 20, sem classes repetidas, e cada magia de classe com o `classId` certo.
 
 ## 12. Exemplo mínimo (Elfa Maga nível 1)
 
@@ -985,6 +1019,7 @@ Repare: 3 truques e 4 magias preparadas (limite do Mago 1), mais 2 magias só no
         "investigation",
         "insight"
       ],
+      "multiclass": [],
       "abilityMethod": "pointbuy",
       "abilities": {
         "str": 8,

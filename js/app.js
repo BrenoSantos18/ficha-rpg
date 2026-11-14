@@ -60,10 +60,23 @@ function setPath(obj, path, val) {
   target[last] = val;
 }
 
-function summary(s) {
-  const cls = CLASS[s.classId], sp = SPECIE[s.species];
-  return [sp && sp.name, cls && `${cls.name} ${s.level}`].filter(Boolean).join(' · ') || 'Personagem incompleto';
+// Soma dos níveis das classes de multiclasse (a classe inicial fica com o restante do nível de personagem)
+const mcLevels = (s) => (s.multiclass || []).reduce((t, m) => t + (CLASS[m.classId] ? Math.max(1, +m.level || 1) : 0), 0);
+function classLine(s) {
+  return [{ classId: s.classId, level: s.level }].concat(s.multiclass || []).filter(c => CLASS[c.classId])
+    .map(c => `${CLASS[c.classId].name} ${c.level}`).join(' / ');
 }
+function summary(s) {
+  const sp = SPECIE[s.species];
+  return [sp && sp.name, classLine(s)].filter(Boolean).join(' · ') || 'Personagem incompleto';
+}
+// Dados de Vida por tipo. Uma classe: usa hitDiceUsed (contrato original). Multiclasse: hitDiceUsedBy { dado: gastos }.
+function hdState(s, d) {
+  if (d.hitDice.length <= 1) { const h = d.hitDice[0] || { die: d.hd, count: d.level }; return [{ die: h.die, count: h.count, used: Math.min(h.count, +s.hitDiceUsed || 0) }]; }
+  const by = s.hitDiceUsedBy || {};
+  return d.hitDice.map(h => ({ die: h.die, count: h.count, used: Math.min(h.count, +by[h.die] || 0) }));
+}
+const hdLabel = (d) => d.hitDice.map(h => `${h.count}d${h.die}`).join(' + ') || `${d.level}d${d.hd}`;
 
 function pips(total, available, action, data = '', cls = '') {
   let h = `<span class="pips ${cls}">`;
@@ -137,6 +150,8 @@ function render() {
   const s = active();
   main.innerHTML = s ? renderSheet(s) : renderHome();
   renderLightbox(s);
+  renderLevelUp(s);
+  renderPicker(s);
   $('#library').innerHTML = ui.library ? renderLibrary() : '';
   $('#library').hidden = !ui.library;
 
@@ -145,6 +160,325 @@ function render() {
     const el = $(focusSel);
     if (el) { el.focus({ preventScroll: true }); if (selStart != null) try { el.setSelectionRange(selStart, selStart); } catch (e) { /* ignore */ } }
   }
+}
+
+
+
+
+// ---------------------------------------------------------------- Seletor em modal (listas com descrição)
+// Substitui listas suspensas longas: cartões com nome, resumo e descrição; bloqueados aparecem com o motivo.
+// item: { value, label, group, sub, desc, why, badge }
+const WTRAIN = { simple: 'Simples', martial: 'Marciais', 'martial-light': 'Marciais com Leve', 'martial-finesse-light': 'Marciais com Acuidade ou Leve' };
+function abIncText(id) { const A = FEAT_AB[id]; return A.asi ? '+2 em um atributo ou +1 em dois' : '+1 em ' + (A.from.length === 6 ? 'qualquer atributo' : A.from.map(a => AB[a].short).join(' ou ')) + (A.max === 30 ? ' (até 30)' : ''); }
+const featItem = (f, why) => ({ value: f.id, label: f.name, group: f.cat, why, desc: f.desc,
+  sub: [featReqText(f) && 'Pré-requisito: ' + featReqText(f), FEAT_AB[f.id] && abIncText(f.id)].filter(Boolean).join(' · ') });
+const classItem = (c, why) => ({ value: c.id, label: c.name, why,
+  sub: `Dado de Vida d${c.hd} · Atributo principal: ${c.primary}${c.caster ? ' · Conjura (' + AB[c.castAb].name + ')' : ''}`,
+  desc: `Salvaguardas: ${c.saves.map(a => AB[a].name).join(', ')}. Armaduras: ${c.armor.map(a => a === 'shield' ? 'escudos' : ARMOR_TYPE_NAME[a].toLowerCase()).join(', ') || 'nenhuma'}. Armas: ${c.weapons.map(w => WTRAIN[w].toLowerCase()).join(', ')}. ${c.skillCount} perícias. Subclasses: ${c.subclasses.map(x => x.name).join(', ')}.` });
+const subItem = (x) => ({ value: x.id, label: x.name, sub: 'Características por nível',
+  desc: x.features.map(([l, n, t]) => `Nv ${l} — ${n}${t ? ': ' + t : ''}`).join('\n') });
+const weaponItem = (d) => (w) => ({ value: w.id, label: w.name, group: `${w.cat === 'simple' ? 'Simples' : 'Marciais'} ${w.kind === 'm' ? 'corpo a corpo' : 'à distância'}`,
+  sub: `${w.dmg} ${w.dtype}${w.props.length ? ' · ' + w.props.join(', ') : ''} · ${w.weight} lb`, desc: `Maestria ${w.mastery}: ${MASTERY_DESC[w.mastery]}`,
+  badge: weaponProficient(d, w) ? '' : 'sem proficiência' });
+const armorItem = (d) => (a) => ({ value: a.id, label: a.name, group: a.type === 'none' ? 'Sem armadura' : 'Armadura ' + ARMOR_TYPE_NAME[a.type].toLowerCase(),
+  sub: a.type === 'none' ? 'CA 10 + DES (ou Defesa sem Armadura da classe)' : `CA ${a.base}${a.type === 'light' ? ' + DES' : a.type === 'medium' ? ' + DES (máx. 2)' : ''} · ${a.weight} lb`,
+  desc: [a.str && `Exige FOR ${a.str} (senão −3 m de deslocamento).`, a.stealth && 'Desvantagem em Furtividade.'].filter(Boolean).join(' '),
+  badge: a.type === 'none' || d.armorTrain.has(a.type) ? '' : 'sem treinamento' });
+// classe da ficha a que um seletor se refere: 'p' = inicial, número = índice em multiclass
+const entryOf = (s, who) => who === 'p' ? { classId: s.classId, sub: s.subclass, choices: s.classChoices } : (() => { const m = s.multiclass[+who] || {}; return { classId: m.classId, sub: m.subclass, choices: m.classChoices || {} }; })();
+
+const PICKERS = {
+  classId: (s) => ({ title: 'Escolher a classe', selected: s.classId, items: CLASSES.map(c => classItem(c)),
+    pick: (s, v) => { s.classId = v; onChange.classId(s); } }),
+  species: (s) => ({ title: 'Escolher a espécie', selected: s.species, items: SPECIES.map(x => ({ value: x.id, label: x.name,
+      sub: `${x.size} · ${ftToM(x.speed)} m${x.darkvision ? ' · Visão no escuro ' + ftToM(x.darkvision) + ' m' : ''}`,
+      desc: x.traits.map(([l, n, t]) => `${n}${l > 1 ? ` (nível ${l})` : ''}: ${t}`).join('\n') })),
+    pick: (s, v) => { s.species = v; onChange.species(s); } }),
+  background: (s) => ({ title: 'Escolher o antecedente', selected: s.background, items: BACKGROUNDS.map(b => ({ value: b.id, label: b.name,
+      sub: `Atributos: ${b.abilities.map(a => AB[a].short).join(', ')} · Talento: ${FEAT[b.feat].name}`,
+      desc: `Perícias: ${b.skills.map(k => SK[k].name).join(', ')}. Ferramenta: ${b.tool}.\n${FEAT[b.feat].name}: ${FEAT[b.feat].desc}` })),
+    pick: (s, v) => { s.background = v; onChange.background(s); } }),
+  subclass: (s, d, who) => { const e = entryOf(s, who); const c = CLASS[e.classId];
+    return { title: `Subclasse de ${c.name}`, selected: e.sub, none: '— Nenhuma por enquanto', items: c.subclasses.map(subItem),
+      pick: (s, v) => { if (who === 'p') s.subclass = v; else s.multiclass[+who].subclass = v; } }; },
+  classChoice: (s, d, arg) => { const [who, key] = arg.split(':'); const e = entryOf(s, who); const ch = CLASS[e.classId].choices.find(x => x.key === key);
+    return { title: `${ch.label} — ${CLASS[e.classId].name}`, selected: e.choices[key], items: ch.options.map(o => ({ value: o.id, label: o.name, desc: o.desc })),
+      pick: (s, v) => { if (who === 'p') s.classChoices[key] = v; else { const m = s.multiclass[+who]; m.classChoices = Object.assign({}, m.classChoices, { [key]: v }); } } }; },
+  speciesChoice: (s, d, key) => { const ch = d.sp.choices.find(x => x.key === key);
+    let items;
+    if (ch.skillAny) items = SKILLS.map(k => ({ value: k.id, label: k.name, sub: AB[k.ab].name, why: d.skills[k.id].auto && s.speciesChoices[key] !== k.id ? 'já é proficiente' : '' }));
+    else if (ch.featOrigin) items = FEATS.filter(f => f.cat === 'Origem').map(f => featItem(f, f.id === d.bg.feat && !FEAT_REPEATABLE.has(f.id) ? 'já vem do antecedente' : ''));
+    else items = ch.options.map(o => ({ value: o.id, label: o.name, desc: o.desc || '' }));
+    return { title: `${ch.label} — ${d.sp.name}`, selected: s.speciesChoices[key], items, pick: (s, v) => { s.speciesChoices[key] = v; } }; },
+  feat: (s, d) => ({ title: 'Adicionar talento', items: FEATS.map(f => featItem(f, featBlocked(f, s, d))),
+    pick: (s, v) => { s.feats.push({ id: uid(), featId: v, note: '', ab: {} }); if (FEAT_AB[v]) toast(`${FEAT[v].name} adicionado — escolha o atributo que ele aumenta.`); } }),
+  lvFeat: (s) => { const base = lvApply(s, ui.lv, false), db = compute(base);
+    return { title: 'Novo talento', selected: ui.lv.feat, none: 'Escolher depois',
+      items: FEATS.filter(f => f.cat !== 'Estilo de Luta').map(f => featItem(f, featBlocked(f, base, db))), pick: (s, v) => { ui.lv.feat = v; ui.lv.ab = {}; } }; },
+  lvStyle: (s) => { const base = lvApply(s, ui.lv, false), db = compute(base);
+    return { title: 'Estilo de Luta', selected: ui.lv.style, none: 'Escolher depois',
+      items: FEATS.filter(f => f.cat === 'Estilo de Luta').map(f => featItem(f, featBlocked(f, base, db))), pick: (s, v) => { ui.lv.style = v; } }; },
+  lvSubclass: (s) => { const id = ui.lv.choice.replace('new:', ''); const c = CLASS[id];
+    return { title: `Subclasse de ${c.name}`, selected: ui.lv.subclass, none: 'Escolher depois', items: c.subclasses.map(subItem), pick: (s, v) => { ui.lv.subclass = v; } }; },
+  lvNewClass: (s, d) => ({ title: 'Nova classe (multiclasse)', selected: ui.lv.choice.replace('new:', ''),
+    items: lvOptions(s, d).fresh.map(o => classItem(CLASS[o.id.slice(4)], o.why)),
+    pick: (s, v) => { Object.assign(ui.lv, { choice: 'new:' + v, subclass: '', feat: '', style: '', ab: {} }); } }),
+  weapon: (s, d) => ({ title: 'Adicionar arma', items: WEAPONS.map(weaponItem(d)),
+    pick: (s, v) => { const before = s.attacks.length; addWeaponTo(s, v); if (s.attacks.length === before) s.attacks.push({ id: uid(), weaponId: v });
+      toast(`${WEAPON[v].name} adicionada aos ataques e ao inventário.`, 'good'); } }),
+  armor: (s, d) => ({ title: 'Armadura vestida', selected: s.armor, items: ARMORS.map(armorItem(d)), pick: (s, v) => { s.armor = v; } }),
+  gear: (s, d) => ({ title: 'Adicionar arma, armadura ou escudo', items: WEAPONS.map(weaponItem(d))
+      .concat(ARMORS.filter(a => a.type !== 'none').map(a => Object.assign(armorItem(d)(a), { value: 'a:' + a.id })))
+      .concat([{ value: 'a:shield', label: 'Escudo', group: 'Escudo', sub: '+2 CA · 6 lb', badge: d.armorTrain.has('shield') ? '' : 'sem treinamento' }]),
+    pick: (s, v) => {
+      if (!v.startsWith('a:')) { addWeaponTo(s, v); toast(`${WEAPON[v].name} adicionada ao inventário e aos ataques.`, 'good'); return; }
+      const id = v.slice(2);
+      if (id === 'shield') s.inventory.push({ id: uid(), name: 'Escudo', qty: 1, weight: 6, equipped: false, notes: '+2 CA' });
+      else { const a = ARMOR[id]; s.inventory.push({ id: uid(), name: a.name, qty: 1, weight: a.weight, equipped: false, notes: `Armadura ${ARMOR_TYPE_NAME[a.type]}, CA ${a.base}` }); }
+      toast('Armadura adicionada. Para vesti-la, escolha-a em Combate → Defesa.'); } }),
+};
+
+// Botão que abre o seletor
+function pickBtn(type, arg, label, placeholder, cls = '', disabled = '') {
+  return `<button class="pick-btn ${cls}" data-action="openPicker" data-type="${type}" data-arg="${esc(arg || '')}"${disabled ? ` disabled title="${esc(disabled)}"` : ''}>${label ? `<span>${esc(label)}</span>` : `<span class="muted">${esc(placeholder)}</span>`}<span class="pick-caret">▾</span></button>`;
+}
+
+function renderPicker(s) {
+  let box = $('#picker');
+  if (!box) { box = document.createElement('div'); box.id = 'picker'; document.body.appendChild(box); }
+  const p = ui.picker && s && ui.picker.sheet === s.id ? ui.picker : null;
+  box.hidden = !p;
+  if (!p) { box.innerHTML = ''; return; }
+  const spec = PICKERS[p.type](s, compute(s), p.arg);
+  const norm = (t) => String(t || '').toLowerCase().normalize('NFD').replace(/[̀-ͯ]/g, '');
+  const groups = [];
+  spec.items.forEach(it => { let g = groups.find(x => x.name === (it.group || '')); if (!g) groups.push(g = { name: it.group || '', items: [] }); g.items.push(it); });
+  const item = (it) => `<button class="pk-item${it.value === spec.selected ? ' on' : ''}${it.why ? ' dis' : ''}" data-action="pickerSelect" data-value="${esc(it.value)}"${it.why ? ' disabled' : ''} data-search="${esc(norm(it.label + ' ' + (it.sub || '') + ' ' + (it.desc || '')))}">
+      <span class="pk-top"><span class="pk-name">${esc(it.label)}</span>${it.value === spec.selected ? '<span class="pk-tag ok">✓ atual</span>' : ''}${it.badge ? `<span class="pk-tag bad-text">${esc(it.badge)}</span>` : ''}${it.why ? `<span class="pk-tag pk-why">🔒 ${esc(it.why)}</span>` : ''}</span>
+      ${it.sub ? `<span class="pk-sub">${esc(it.sub)}</span>` : ''}
+      ${it.desc ? `<span class="pk-desc">${esc(it.desc).replace(/\n/g, '<br>')}</span>` : ''}</button>`;
+  box.innerHTML = `<div class="modal-bg picker-bg" data-action="pickerClose"></div>
+  <div class="modal picker-modal" role="dialog" aria-label="${esc(spec.title)}">
+    <div class="modal-head"><h2>${esc(spec.title)}</h2><button class="btn sm" data-action="pickerClose">Fechar</button></div>
+    <input id="pickerSearch" type="search" placeholder="Buscar…" autocomplete="off" value="${esc(p.q || '')}">
+    <div class="pk-list">
+      ${spec.none ? `<button class="pk-item pk-none${!spec.selected ? ' on' : ''}" data-action="pickerSelect" data-value="" data-search=""><span class="pk-name">${esc(spec.none)}</span></button>` : ''}
+      ${groups.map(g => `<div class="pk-group">${g.name ? `<h4>${esc(g.name)}</h4>` : ''}${g.items.map(item).join('')}</div>`).join('')}
+    </div>
+  </div>`;
+  filterPicker(p.q || '');
+  if (p.justOpened) { p.justOpened = false; if (!matchMedia('(hover: none)').matches) setTimeout(() => { const i = $('#pickerSearch'); if (i) i.focus(); }, 0); }
+}
+function filterPicker(q) {
+  const n = String(q).toLowerCase().normalize('NFD').replace(/[̀-ͯ]/g, '').trim();
+  document.querySelectorAll('#picker .pk-item').forEach(b => { b.hidden = !!n && !b.dataset.search.includes(n); });
+  document.querySelectorAll('#picker .pk-group').forEach(g => { g.hidden = ![...g.querySelectorAll('.pk-item')].some(b => !b.hidden); });
+}
+
+// ---------------------------------------------------------------- Pendências (o que falta configurar)
+// Lista o que falta escolher ou passou do limite, usando os mesmos números do motor de regras.
+// sev: 'todo' = falta configurar; 'bad' = passou do limite / fora da regra
+function pendings(s, d) {
+  const out = [];
+  const add = (tab, text, sev = 'todo') => out.push({ tab, text, sev });
+  const n = (k, a, b) => `${k} ${a} de ${b}`;
+  // Construção: básico
+  if (!s.species) add('build', 'Escolher a espécie');
+  if (!s.background) add('build', 'Escolher o antecedente');
+  if (!s.classId) add('build', 'Escolher a classe');
+  // Espécie
+  if (d.sp.id) {
+    if (d.sp.sizeChoice && !s.size) add('build', `Escolher o tamanho — ${d.sp.name}`);
+    for (const ch of d.sp.choices || []) if (!(s.speciesChoices || {})[ch.key]) add('build', `Escolher ${ch.label} — ${d.sp.name}`);
+  }
+  // Antecedente
+  if (d.bg.id && s.bgMode !== '111' && (!d.bg.abilities.includes(s.bg2) || !d.bg.abilities.includes(s.bg1) || s.bg1 === s.bg2)) add('build', 'Distribuir o aumento de atributos do antecedente');
+  // Classes
+  for (const c of d.classes) {
+    for (const ch of c.cls.choices || []) if (!c.classChoices[ch.key]) add('build', `Escolher ${ch.label} — ${c.cls.name}`);
+    if (c.level >= 3 && !c.subclass) add('build', `Escolher a subclasse de ${c.cls.name}`);
+  }
+  if (d.cls.id && s.classSkills.length < d.classSkillMax) add('build', `Escolher ${d.classSkillMax - s.classSkills.length} perícia(s) de ${d.cls.name}`);
+  if (d.cls.id && s.classSkills.length > d.classSkillMax) add('build', `Perícias de ${d.cls.name} acima do limite (${s.classSkills.length}/${d.classSkillMax})`, 'bad');
+  d.mcPicks.forEach(p => { if (p.used < p.count) add('build', `Escolher ${p.count - p.used} perícia de ${p.name} (multiclasse)`); });
+  // Atributos
+  if (s.abilityMethod === 'pointbuy') {
+    const left = POINT_BUY_BUDGET - pointBuySpent(s.abilities);
+    if (left > 0) add('build', `Distribuir ${left} ponto(s) de atributo (compra de pontos)`);
+    if (left < 0) add('build', `Compra de pontos estourada em ${-left} ponto(s)`, 'bad');
+  }
+  if (s.abilityMethod === 'standard') {
+    const v = ABILITIES.map(a => +s.abilities[a.id]).sort((a, b) => b - a);
+    if (JSON.stringify(v) !== JSON.stringify(STANDARD_ARRAY)) add('build', 'Distribuir o arranjo padrão (15, 14, 13, 12, 10, 8)');
+  }
+  d.mcIssues.forEach(m => add('build', `Pré-requisito de multiclasse: ${m}`, 'bad'));
+  const langs = (s.languages || []).filter(Boolean).length;
+  if (langs < 3) add('build', `Escolher ${3 - langs} idioma(s)`);
+  // Perícias
+  if (d.expertiseUsed < d.expertiseMax) add('main', `Escolher ${d.expertiseMax - d.expertiseUsed} especialização(ões)`);
+  if (d.expertiseUsed > d.expertiseMax) add('main', `Especializações acima do limite (${d.expertiseUsed}/${d.expertiseMax})`, 'bad');
+  if (d.profExtraUsed < d.profExtraMax) add('main', `Escolher ${d.profExtraMax - d.profExtraUsed} perícia(s) extra(s)`);
+  if (d.profExtraUsed > d.profExtraMax) add('main', `Perícias extras acima do limite (${d.profExtraUsed}/${d.profExtraMax})`, 'bad');
+  // Combate
+  if (d.masteryUsed < d.masteryMax) add('combat', `Marcar ${d.masteryMax - d.masteryUsed} arma(s) com Maestria${d.masteryUsed + (s.attacks || []).filter(a => WEAPON[a.weaponId] && !s.mastery[a.weaponId]).length < d.masteryMax ? ' (adicione armas em Ataques)' : ''}`);
+  if (d.masteryUsed > d.masteryMax) add('combat', n('Maestrias acima do limite:', d.masteryUsed, d.masteryMax), 'bad');
+  // Magias
+  for (const c of d.casters) {
+    const k = spellCounts(s, c.classId);
+    if (k.cantrips < c.cantrips) add('spells', `Escolher ${c.cantrips - k.cantrips} truque(s) de ${c.name}`);
+    if (k.cantrips > c.cantrips) add('spells', `Truques de ${c.name} acima do limite (${k.cantrips}/${c.cantrips})`, 'bad');
+    if (c.classId === 'wizard' && k.book < spellMaxOf(c)) add('spells', `Copiar ${spellMaxOf(c) - k.book} magia(s) para o grimório (Mago)`);
+    if (k.prepared < c.prepared) add('spells', `Preparar ${c.prepared - k.prepared} magia(s) de ${c.name}`);
+    if (k.prepared > c.prepared) add('spells', `Magias preparadas de ${c.name} acima do limite (${k.prepared}/${c.prepared})`, 'bad');
+  }
+  // Talentos
+  if (d.featUse.general < d.featSlots) add('features', `Escolher ${d.featSlots - d.featUse.general} talento(s)`);
+  if (d.featUse.general > d.featSlots) add('features', `Talentos acima das vagas (${d.featUse.general}/${d.featSlots})`, 'bad');
+  if (d.featUse.style < d.styleSlots) add('features', `Escolher ${d.styleSlots - d.featUse.style} Estilo(s) de Luta`);
+  if (d.featUse.style > d.styleSlots) add('features', `Estilos de Luta acima das vagas (${d.featUse.style}/${d.styleSlots})`, 'bad');
+  d.featAbPending.forEach(i => add('features', `Escolher o atributo de ${(FEAT[s.feats[i].featId] || {}).name || 'talento'}`));
+  (s.feats || []).forEach(f => { const F = f.featId && FEAT[f.featId]; const why = F && featPrereqFail(F, d); if (why) add('features', `${F.name}: ${why}`, 'bad'); });
+  return out;
+}
+const TAB_NAME = { build: 'Construção', main: 'Atributos & Perícias', combat: 'Combate', spells: 'Magias', inv: 'Inventário', features: 'Características', bio: 'Biografia' };
+function pendingsHtml(s, list) {
+  if (!list.length) return '';
+  const open = ui.pendOpen === s.id;
+  const bad = list.filter(p => p.sev === 'bad').length;
+  return `<div class="pend-box${bad ? ' has-bad' : ''}">
+    <button class="pend-toggle" data-action="pendToggle">⚠ ${list.length} ${list.length === 1 ? 'item' : 'itens'} para configurar${bad ? ` <span class="bad-text">(${bad} fora da regra)</span>` : ''} <span class="muted">${open ? '▲' : '▼'}</span></button>
+    ${open ? `<ul class="pend-list">${list.map(p => `<li class="${p.sev}"><a href="#" data-action="subtab" data-tab="${p.tab}"><span class="pend-tab">${TAB_NAME[p.tab]}</span> ${esc(p.text)}</a></li>`).join('')}</ul>` : ''}
+  </div>`;
+}
+
+// ---------------------------------------------------------------- Subir de nível (modal)
+// O modal calcula a ficha como está e como ficaria depois (mesmo motor de regras) e mostra a diferença.
+function lvOptions(s, d) {
+  if (d.level >= 20) return { cur: [], fresh: [] };
+  const cur = d.classes.filter(c => c.level < 20).map(c => ({ id: c.classId, label: `${c.cls.name} ${c.level} → ${c.level + 1}` }));
+  const blockedNow = d.classes.map(c => multiclassReqFail(c.classId, d.scores)).find(Boolean);
+  const fresh = CLASSES.filter(c => !d.classes.some(x => x.classId === c.id)).map(c => {
+    const why = multiclassReqFail(c.id, d.scores) || (blockedNow ? blockedNow.replace(' exige', ' (atual) exige') : '');
+    return { id: 'new:' + c.id, label: c.name, why: why ? why.replace(c.name + ' exige', 'exige') : '' };
+  });
+  return { cur, fresh };
+}
+function lvApply(s, lv, withPicks = true) {
+  const n = JSON.parse(JSON.stringify(s));
+  n.multiclass = n.multiclass || [];
+  const isNew = lv.choice.startsWith('new:');
+  const id = isNew ? lv.choice.slice(4) : lv.choice;
+  if (isNew) n.multiclass.push({ classId: id, level: 1, subclass: '', classChoices: {}, classSkills: [] });
+  else if (id === n.classId) n.level = (+n.level || 1) + 1;
+  else { const m = n.multiclass.find(x => x.classId === id); if (m) m.level = (+m.level || 1) + 1; }
+  if (withPicks) {
+    if (lv.subclass) { if (id === n.classId) n.subclass = lv.subclass; else { const m = n.multiclass.find(x => x.classId === id); if (m) m.subclass = lv.subclass; } }
+    const lvl = compute(s).level + 1;
+    if (lv.feat) n.feats.push({ id: uid(), featId: lv.feat, note: `Nível ${lvl}`, ab: lv.ab || {} });
+    if (lv.style) n.feats.push({ id: uid(), featId: lv.style, note: `Nível ${lvl}` });
+  }
+  return n;
+}
+function levelDiff(s0, d0, s1, d1, lv, dBase = d1) {
+  const id = lv.choice.replace('new:', '');
+  const c1 = d1.classes.find(c => c.classId === id);
+  const sec = [], pend = [];
+  const li = (txt, cls = '') => `<li class="${cls}">${txt}</li>`;
+  // Básico
+  const basic = [li(`Nível de personagem <b>${d0.level} → ${d1.level}</b>${d1.multi ? ` · ${esc(classLine(s1))}` : ''}`)];
+  if (d1.pb !== d0.pb) basic.push(li(`Bônus de proficiência <b>${fmt(d0.pb)} → ${fmt(d1.pb)}</b> (perícias, salvaguardas, ataques e CD)`, 'up'));
+  const hpLevel = dBase.hpMax - d0.hpMax, hpChoice = d1.hpMax - dBase.hpMax;
+  basic.push(li(`Pontos de Vida máximos <b>${d0.hpMax} → ${d1.hpMax}</b> (+${hpLevel} do nível: média do d${c1.cls.hd} + CON${hpChoice ? `; ${hpChoice > 0 ? '+' : ''}${hpChoice} do talento escolhido` : ''})`, 'up'));
+  basic.push(li(`Dado de Vida <b>+1d${c1.cls.hd}</b>`));
+  ABILITIES.filter(a => d1.scores[a.id] !== d0.scores[a.id]).forEach(a => basic.push(li(`${a.name} <b>${d0.scores[a.id]} → ${d1.scores[a.id]}</b> (mod. ${fmt(d0.mods[a.id])} → ${fmt(d1.mods[a.id])})`, 'up')));
+  if (d1.speed !== d0.speed) basic.push(li(`Deslocamento <b>${ftToM(d0.speed)} → ${ftToM(d1.speed)} m</b>`, 'up'));
+  if (d1.ac !== d0.ac) basic.push(li(`CA <b>${d0.ac} → ${d1.ac}</b>`, 'up'));
+  const newSaves = ABILITIES.filter(a => d1.saves[a.id].prof && !d0.saves[a.id].prof);
+  if (newSaves.length) basic.push(li(`Proficiência em salvaguardas: <b>${newSaves.map(a => a.name).join(', ')}</b>`, 'up'));
+  if (d1.aura !== d0.aura) basic.push(li(`Aura de Proteção: <b>+${d1.aura}</b> em todas as salvaguardas`, 'up'));
+  if (d1.initAdv && !d0.initAdv) basic.push(li('Vantagem na Iniciativa', 'up'));
+  sec.push(['Geral', basic]);
+  // Classe nova: proficiências
+  if (lv.choice.startsWith('new:')) {
+    sec.push([`Entrando em ${c1.cls.name} (multiclasse)`, [li(`Proficiências: ${esc(mcGainText(id))}`), li('Salvaguardas continuam só as da classe inicial', 'muted')]]);
+    if ((c1.cls.choices || []).length) pend.push(`${c1.cls.choices.map(ch => ch.label).join(', ')} de ${c1.cls.name} — Construção`);
+  }
+  // Características novas
+  const key = (f) => f.src + '|' + f.name + '|' + f.lvl;
+  const had = new Set(d0.features.filter(f => f.lvl <= f.srcLevel).map(key));
+  const feats = d1.features.filter(f => f.lvl <= f.srcLevel && !had.has(key(f)));
+  if (feats.length) sec.push(['Características novas', feats.map(f => li(`<b>${esc(f.name)}</b> <small class="muted">${esc(f.src)}</small>${f.desc ? `<br><span class="small">${esc(f.desc)}</span>` : ''}`))]);
+  // Recursos e números de classe
+  const r0 = Object.fromEntries(d0.resources.map(r => [r.key, r]));
+  const res = d1.resources.filter(r => !r.custom && (!r0[r.key] || r0[r.key].max !== r.max || r0[r.key].name !== r.name))
+    .map(r => li(r0[r.key] ? `${esc(r.name)}: <b>${r0[r.key].max} → ${r.max}</b>` : `Novo recurso: <b>${esc(r.name)}</b> (${r.max} ${r.reset === 'short' ? 'por descanso curto' : 'por descanso longo'})`, 'up'));
+  const st0 = Object.fromEntries(classStats(d0));
+  classStats(d1).forEach(([k, v]) => { if (String(st0[k]) !== String(v)) res.push(li(st0[k] != null ? `${esc(k)}: <b>${esc(String(st0[k]))} → ${esc(String(v))}</b>` : `${esc(k)}: <b>${esc(String(v))}</b>`, 'up')); });
+  if (d1.masteryMax > d0.masteryMax) { res.push(li(`Maestria em armas: <b>${d0.masteryMax} → ${d1.masteryMax}</b>`, 'up')); pend.push(`Marcar ${d1.masteryMax - d0.masteryMax} maestria(s) — Combate`); }
+  if (d1.expertiseMax > d0.expertiseMax) { res.push(li(`Especializações: <b>${d0.expertiseMax} → ${d1.expertiseMax}</b>`, 'up')); pend.push(`Escolher ${d1.expertiseMax - d0.expertiseMax} especialização(ões) — Atributos & Perícias`); }
+  if (d1.profExtraMax > d0.profExtraMax) { res.push(li(`Proficiências em perícia extras: <b>+${d1.profExtraMax - d0.profExtraMax}</b>`, 'up')); pend.push(`Escolher ${d1.profExtraMax - d0.profExtraMax} perícia(s) — Atributos & Perícias`); }
+  const mcp = d1.mcPicks.find(p => p.classId === id && !d0.mcPicks.some(q => q.classId === id));
+  if (mcp) pend.push(`Escolher ${mcp.count} perícia de ${CLASS[id].name} — Construção`);
+  if (res.length) sec.push(['Recursos e números de classe', res]);
+  // Magia
+  const mag = [];
+  for (const c of d1.casters) {
+    const o = casterFor(d0, c.classId);
+    if (!o) { mag.push(li(`<b>Conjuração de ${esc(casterLabel(c))}</b>: ${AB[c.ability].name}, CD ${c.dc}${c.cantrips ? `, ${c.cantrips} truque(s)` : ''}, ${c.prepared} magia(s) preparada(s) até o ${c.maxLevel}º nível`, 'up')); if (c.cantrips) pend.push(`Escolher ${c.cantrips} truque(s) de ${c.name} — Magias`); if (c.prepared) pend.push(`Escolher ${c.prepared} magia(s) de ${c.name} — Magias`); continue; }
+    if (c.cantrips > o.cantrips) { mag.push(li(`Truques de ${esc(c.name)}: <b>${o.cantrips} → ${c.cantrips}</b>`, 'up')); pend.push(`Escolher ${c.cantrips - o.cantrips} truque(s) de ${c.name} — Magias`); }
+    if (c.prepared > o.prepared) { mag.push(li(`Magias preparadas de ${esc(c.name)}: <b>${o.prepared} → ${c.prepared}</b>`, 'up')); pend.push(`Escolher ${c.prepared - o.prepared} magia(s) de ${c.name} — Magias`); }
+    if (c.maxLevel > o.maxLevel) mag.push(li(`${esc(c.name)} passa a lançar magias de <b>${c.maxLevel}º nível</b>`, 'up'));
+    if (c.classId === 'wizard' && spellMaxOf(c) > spellMaxOf(o)) pend.push(`Copiar ${spellMaxOf(c) - spellMaxOf(o)} magia(s) para o grimório — Magias`);
+  }
+  for (let i = 0; i < 9; i++) { const a = d0.slots[i] || 0, b = d1.slots[i] || 0; if (b !== a) mag.push(li(`Espaços de ${i + 1}º nível: <b>${a} → ${b}</b>`, 'up')); }
+  if (JSON.stringify(d0.pact) !== JSON.stringify(d1.pact) && d1.pact) mag.push(li(`Espaços de Pacto: <b>${d1.pact.count} de ${d1.pact.level}º nível</b>${d0.pact ? ` (antes ${d0.pact.count} de ${d0.pact.level}º)` : ''}`, 'up'));
+  if (mag.length) sec.push(['Magia', mag]);
+  return { sec, pend, c1, d1 };
+}
+
+function renderLevelUp(s) {
+  let box = $('#levelup');
+  if (!box) { box = document.createElement('div'); box.id = 'levelup'; document.body.appendChild(box); }
+  const lv = ui.lv && s && ui.lv.sheet === s.id ? ui.lv : null;
+  box.hidden = !lv;
+  if (!lv) { box.innerHTML = ''; return; }
+  const d0 = compute(s);
+  const { cur, fresh } = lvOptions(s, d0);
+  if (!lv.choice) lv.choice = cur[0] ? cur[0].id : '';
+  const base = lvApply(s, lv, false), dBase = compute(base);
+  const full = lvApply(s, lv, true), d1 = compute(full);
+  const { sec, pend, c1 } = levelDiff(s, d0, full, d1, lv, dBase);
+  // escolhas feitas no próprio modal
+  const choices = [];
+  if (c1 && c1.level === 3 && !(lv.choice === s.classId ? s.subclass : ((s.multiclass || []).find(m => m.classId === c1.classId) || {}).subclass)) {
+    choices.push(`<div class="field"><span>Subclasse de ${esc(c1.cls.name)}</span>${pickBtn('lvSubclass', '', lv.subclass ? c1.cls.subclasses.find(x => x.id === lv.subclass).name : '', 'Escolher depois')}</div>`);
+    if (!lv.subclass) pend.push(`Escolher a subclasse de ${c1.cls.name} — Construção`);
+  }
+  if (dBase.featSlots > d0.featSlots) {
+    choices.push(`<div class="field"><span>Novo talento <small class="muted">(ou Aumento no Valor de Atributo)</small></span>${pickBtn('lvFeat', '', lv.feat ? FEAT[lv.feat].name : '', 'Escolher depois')}
+      ${lv.feat ? `<p class="small muted">${esc(FEAT[lv.feat].desc)}</p>` : ''}
+      ${lv.feat && FEAT_AB[lv.feat] ? `<div class="field small">Aumento de atributo: ${abChooserHtml('lv', lv.feat, lv.ab, dBase)}</div>` : ''}</div>`);
+    if (!lv.feat) pend.push('Escolher o talento novo — Características');
+    else if (FEAT_AB[lv.feat] && !featAbValid({ featId: lv.feat, ab: lv.ab })) pend.push('Escolher o atributo do talento — Características');
+  }
+  if (dBase.styleSlots > d0.styleSlots) {
+    choices.push(`<div class="field"><span>Estilo de Luta</span>${pickBtn('lvStyle', '', lv.style ? FEAT[lv.style].name : '', 'Escolher depois')}</div>${lv.style ? `<p class="small muted">${esc(FEAT[lv.style].desc)}</p>` : ''}`);
+    if (!lv.style) pend.push('Escolher o Estilo de Luta — Características');
+  }
+  box.innerHTML = `<div class="modal-bg" data-action="lvClose"></div>
+  <div class="modal lv-modal" role="dialog" aria-label="Subir de nível">
+    <div class="modal-head"><h2>Subir de nível — ${esc(s.name || 'Sem nome')}</h2><button class="btn sm" data-action="lvClose">Fechar</button></div>
+    <div class="lv-pick">
+      <span class="small muted">Em qual classe?</span>
+      <div class="row gap wrap">${cur.map(o => `<button class="btn${lv.choice === o.id ? ' primary' : ''}" data-action="lvChoice" data-choice="${o.id}">${esc(o.label)}</button>`).join('')}
+        ${fresh.length ? pickBtn('lvNewClass', '', lv.choice.startsWith('new:') ? `${CLASS[lv.choice.slice(4)].name} 0 → 1 (nova)` : '', '＋ Nova classe (multiclasse)…', lv.choice.startsWith('new:') ? 'on' : '') : ''}</div>
+    </div>
+    ${choices.length ? `<div class="lv-choices">${choices.join('')}</div>` : ''}
+    ${sec.map(([t, items]) => `<section class="lv-sec"><h3>${esc(t)}</h3><ul>${items.join('')}</ul></section>`).join('')}
+    ${pend.length ? `<section class="lv-sec lv-pend"><h3>Depois de subir, falta escolher</h3><ul>${pend.map(p => `<li>${esc(p)}</li>`).join('')}</ul></section>` : ''}
+    <div class="lv-foot"><button class="btn" data-action="lvClose">Cancelar</button><button class="btn primary" data-action="lvConfirm">Confirmar: nível ${d1.level}</button></div>
+  </div>`;
+  lv.pending = pend;
 }
 
 // Foto expandida em tela cheia, com opções no rodapé
@@ -161,6 +495,12 @@ function renderLightbox(s) {
       <button class="btn" data-action="closePhoto">Fechar</button>
     </div>` : '';
   document.body.classList.toggle('no-scroll', !!show);
+}
+
+// Números de classe (Fúria, Ataque Furtivo, Artes Marciais...), cada um pelo nível na própria classe
+function classStats(d) {
+  return d.classes.flatMap(c => (c.cls.stats ? c.cls.stats({ level: c.level, mods: d.mods, pb: d.pb }) : [])
+    .map(([k, v]) => [d.multi && d.classes.length > 1 ? `${k} (${c.cls.name})` : k, v]));
 }
 
 function renderHeader() {
@@ -296,7 +636,8 @@ function renderSheet(s) {
   const hpCur = s.hp.current == null ? d.hpMax : s.hp.current;
   const hpPct = Math.max(0, Math.min(100, hpCur / d.hpMax * 100));
   const xpNext = XP_TABLE[d.level] ?? null;
-  const missing = [!s.species && 'espécie', !s.background && 'antecedente', !s.classId && 'classe'].filter(Boolean);
+  const pend = pendings(s, d);
+  const pendBy = pend.reduce((m, p) => (m[p.tab] = (m[p.tab] || 0) + 1, m), {});
 
   const body = {
     build: renderBuild, main: renderMain, combat: renderCombat, spells: renderSpells, inv: renderInventory, features: renderFeatures, bio: renderBio,
@@ -311,13 +652,13 @@ function renderSheet(s) {
       <input class="name-input" data-bind="name" value="${esc(s.name)}" placeholder="Nome do personagem">
       <div class="hero-sub">${esc(summary(s))}${d.sub ? ` · ${esc(d.sub.name)}` : ''}${d.bg.id ? ` · ${esc(d.bg.name)}` : ''}</div>
       <div class="hero-fields">
-        <label>Nível <select data-bind="level" data-num>${Array.from({ length: 20 }, (_, i) => opt(i + 1, i + 1, s.level)).join('')}</select></label>
+        <label title="Nível de personagem${d.multi ? ' (soma das classes; distribua entre elas na Construção)' : ''}">Nível <select data-total>${Array.from({ length: 20 - mcLevels(s) }, (_, i) => i + 1 + mcLevels(s)).map(n => opt(n, n, d.level)).join('')}</select></label>
+        ${d.cls.id && d.level < 20 ? `<button class="btn sm${xpNext != null && s.xp >= xpNext ? ' gold' : ''}" data-action="levelUp" title="Ver tudo o que o personagem ganha no próximo nível">⬆ Subir de nível</button>` : ''}
         <label>XP <input type="number" min="0" data-bind="xp" data-num value="${+s.xp || 0}" class="w-num">${xpNext != null ? `<small class="muted">/ ${xpNext.toLocaleString('pt-BR')}</small>` : ''}</label>
-        ${xpNext != null && s.xp >= xpNext && d.level < 20 ? '<button class="btn sm gold" data-action="levelUp">Subir de nível!</button>' : ''}
         <label>Jogador <input data-bind="player" value="${esc(s.player)}" placeholder="—"></label>
         <label>Tendência <select data-bind="alignment">${opt('', '—', s.alignment)}${ALIGNMENTS.map(a => opt(a, a, s.alignment)).join('')}</select></label>
       </div>
-      ${missing.length ? `<div class="hint">Falta escolher: ${missing.join(', ')}. <a href="#" data-action="subtab" data-tab="build">Ir para Construção</a></div>` : ''}
+      ${pendingsHtml(s, pend)}
     </div>
     <div class="hero-side">
       <button class="btn primary" data-action="togglePreview">👁 Ficha completa</button>
@@ -336,15 +677,16 @@ function renderSheet(s) {
     <div class="vital card"><span class="v-label">Proficiência</span><span class="v-big">${fmt(d.pb)}</span><small>bônus</small></div>
     <div class="vital card"><span class="v-label">Percepção passiva</span><span class="v-big">${d.passive.perception}</span><small>${d.darkvision ? `Visão no escuro ${ftToM(d.darkvision)} m` : 'sem visão no escuro'}</small></div>
     <div class="vital card hp">
-      <div class="hp-top"><span class="v-label">Pontos de Vida</span><span class="muted small">Dado de Vida d${d.hd}</span></div>
+      <div class="hp-top"><span class="v-label">Pontos de Vida</span><span class="muted small">Dado${d.hitDice.length > 1 ? 's' : ''} de Vida ${d.hitDice.length > 1 ? d.hitDice.map(h => 'd' + h.die).join('/') : 'd' + d.hd}</span></div>
       <div class="hp-nums"><input type="number" data-bind="hp.current" data-num value="${hpCur}" class="hp-cur" aria-label="PV atuais"><span>/ ${d.hpMax}</span>${s.hp.temp ? `<span class="temp">+${s.hp.temp} temp</span>` : ''}</div>
       <div class="hp-bar"><div style="width:${hpPct}%" class="${hpPct <= 25 ? 'low' : hpPct <= 50 ? 'mid' : ''}"></div></div>
       <div class="hp-ctrl"><input type="number" id="hpAmt" min="0" placeholder="0" aria-label="Quantidade"><button class="btn sm danger" data-action="hpDamage">Dano</button><button class="btn sm good" data-action="hpHeal">Cura</button><button class="btn sm" data-action="hpTemp">Temp</button></div>
     </div>
     <div class="vital card hd">
       <span class="v-label">Dados de Vida</span>
-      <span class="v-mid">${d.level - s.hitDiceUsed}<small>/${d.level} d${d.hd}</small></span>
-      <button class="btn sm" data-action="spendHD" ${d.level - s.hitDiceUsed <= 0 ? 'disabled' : ''}>Gastar 1</button>
+      ${(() => { const hs = hdState(s, d); const left = hs.reduce((t, h) => t + h.count - h.used, 0);
+        return `<span class="v-mid">${left}<small>/${d.level}</small></span><small>${hs.map(h => `${h.count - h.used}d${h.die}`).join(' + ')}</small>
+        <div class="row gap wrap hd-btns">${hs.map(h => `<button class="btn sm" data-action="spendHD" data-die="${h.die}" ${h.used >= h.count ? 'disabled' : ''}>${hs.length > 1 ? 'Gastar d' + h.die : 'Gastar 1'}</button>`).join('')}</div>`; })()}
     </div>
     ${hpCur <= 0 ? `<div class="vital card death">
       <span class="v-label">Testes contra a Morte</span>
@@ -356,7 +698,7 @@ function renderSheet(s) {
 
   ${d.warnings.length ? `<div class="warn">${d.warnings.map(esc).join('<br>')}</div>` : ''}
 
-  <nav class="subtabs">${SUBTABS.map(([k, l]) => `<button class="${sub === k ? 'on' : ''}" data-action="subtab" data-tab="${k}">${l}</button>`).join('')}</nav>
+  <nav class="subtabs">${SUBTABS.map(([k, l]) => `<button class="${sub === k ? 'on' : ''}" data-action="subtab" data-tab="${k}">${l}${pendBy[k] ? ` <span class="tab-count" title="${pendBy[k]} pendência(s)">${pendBy[k]}</span>` : ''}</button>`).join('')}</nav>
   <div class="sub-body">${body}</div>`;
 }
 
@@ -366,7 +708,7 @@ function renderPreview(s, d) {
   const hpCur = s.hp.current == null ? d.hpMax : s.hp.current;
   const sec = (title, body, cls = '') => body ? `<section class="pv-sec ${cls}"><h3>${title}</h3>${body}</section>` : '';
   const line = (k, v) => v ? `<div class="pv-line"><span>${k}</span><b>${v}</b></div>` : '';
-  const ident = [d.sp.id && d.sp.name, d.cls.id && `${d.cls.name} ${d.level}`, d.sub && d.sub.name, d.bg.id && d.bg.name].filter(Boolean).map(esc).join(' · ');
+  const ident = [d.sp.id && d.sp.name, d.classes.map(c => `${c.cls.name} ${c.level}${c.sub ? ` (${c.sub.name})` : ''}`).join(' / '), d.bg.id && d.bg.name].filter(Boolean).map(esc).join(' · ');
   const flags = [s.inspiration && '<span class="badge gold">Inspiração Heroica</span>', s.exhaustion > 0 && `<span class="badge bad">Exaustão ${s.exhaustion}</span>`,
     ...s.conditions.map(c => `<span class="badge bad">${esc(c)}</span>`)].filter(Boolean).join(' ');
 
@@ -393,7 +735,7 @@ function renderPreview(s, d) {
       <td><button class="btn sm roll" data-action="rollAttack" data-i="${i}">${fmt(c.hit)}</button></td>
       <td><button class="btn sm roll dmg" data-action="rollDmg" data-i="${i}">${esc(c.dmg)}${c.extra ? ' + ' + esc(c.extra) : ''}</button> <small class="muted">${esc(c.dtype)}</small></td></tr>`;
   }).join('');
-  const stats = d.cls.stats ? d.cls.stats({ level: d.level, mods: d.mods, pb: d.pb }) : [];
+  const stats = classStats(d);
 
   // Recursos
   const resources = d.resources.map(r => {
@@ -407,7 +749,7 @@ function renderPreview(s, d) {
   if (d.bg.id) feats.push([FEAT[d.bg.feat], d.bg.name]);
   if (s.species === 'human' && s.speciesChoices.versatile) feats.push([FEAT[s.speciesChoices.versatile], 'Humano']);
   s.feats.forEach(x => feats.push([x.featId ? FEAT[x.featId] : { name: x.name, desc: x.desc }, x.note || '']));
-  const features = d.features.filter(f => f.lvl <= d.level && f.desc).map(f =>
+  const features = d.features.filter(f => f.lvl <= f.srcLevel && f.desc).map(f =>
     `<div class="pv-feat"><b>${esc(f.name)}</b> <small class="muted">${esc(f.src)} ${f.lvl}</small><p>${esc(f.desc)}</p></div>`).join('');
   const featHtml = feats.map(([f, src]) => `<div class="pv-feat"><b>${esc(f.name)}</b> ${src ? `<small class="muted">${esc(src)}</small>` : ''}${f.desc ? `<p>${esc(f.desc)}</p>` : ''}</div>`).join('');
 
@@ -418,7 +760,7 @@ function renderPreview(s, d) {
       <div><span>CD</span><b>${d.spell.dc}</b></div>
       <button data-action="rollSpellAtk"><span>Ataque</span><b>${fmt(d.spell.attack)}</b></button>
       <div><span>Atributo</span><b>${AB[d.spell.ability].short}</b></div>
-      ${d.casterType ? `<div><span>Preparadas</span><b>${spellCounts(s).prepared}/${d.prepared}</b></div>` : ''}
+      ${d.casters.map(c => `<div><span>Preparadas${d.casters.length > 1 ? ' · ' + esc(c.name) : ''}</span><b>${spellCounts(s, c.classId).prepared}/${c.prepared}</b></div>`).join('')}
     </div>` : '';
     const slots = d.slots.map((n, i) => `<div class="slot"><span class="slot-l">${i + 1}º</span>${pips(n, n - Math.min(n, s.slotsUsed[i + 1] || 0), 'slotPip', `data-l="${i + 1}" data-max="${n}"`)}</div>`).join('')
       + (d.pact ? `<div class="slot"><span class="slot-l">${d.pact.level}º</span>${pips(d.pact.count, d.pact.count - Math.min(d.pact.count, s.pactUsed), 'pactPip', `data-max="${d.pact.count}"`)} <small class="muted">Pacto</small></div>` : '');
@@ -468,7 +810,7 @@ function renderPreview(s, d) {
       <button class="pv-v" data-action="rollInit"><span>Iniciativa</span><b>${fmt(d.init)}</b></button>
       <div class="pv-v"><span>Desloc.</span><b>${ftToM(d.speed)}<small> m</small></b></div>
       <div class="pv-v"><span>Prof.</span><b>${fmt(d.pb)}</b></div>
-      <div class="pv-v"><span>Dados de Vida</span><b>${d.level - s.hitDiceUsed}<small>/${d.level}d${d.hd}</small></b></div>
+      <div class="pv-v"><span>Dados de Vida</span><b>${hdState(s, d).reduce((t, h) => t + h.count - h.used, 0)}<small>/${hdLabel(d)}</small></b></div>
       <div class="pv-v"><span>Perc. passiva</span><b>${d.passive.perception}</b></div>
     </div>
   </header>
@@ -478,7 +820,7 @@ function renderPreview(s, d) {
       ${sec('Atributos', `<div class="pv-abs">${abilities}</div>`)}
       ${sec('Sentidos e defesas', line('Visão no escuro', d.darkvision ? ftToM(d.darkvision) + ' m' : '—') + line('Intuição passiva', d.passive.insight) + line('Investigação passiva', d.passive.investigation)
         + line('Tamanho', esc(s.size || d.sp.size)) + line('Resistências', [...new Set(d.resist)].join(', ')) + line('Armadura', esc(d.acNote) + (s.shield ? ' + Escudo' : '')))}
-      ${sec('Proficiências', line('Armaduras', armorList) + line('Armas', weaponList) + line('Ferramentas', [...new Set([d.bg.tool, d.cls.tools, s.toolProfs].filter(Boolean))].map(esc).join('; '))
+      ${sec('Proficiências', line('Armaduras', armorList) + line('Armas', weaponList) + line('Ferramentas', [...new Set([d.bg.tool, d.cls.tools, ...d.mcTools, s.toolProfs].filter(Boolean))].map(esc).join('; '))
         + line('Idiomas', [...s.languages, ...d.autoLangs].map(esc).join(', ')))}
     </div>
     <div class="pv-col">
@@ -506,8 +848,9 @@ function renderBuild(s, d) {
   const bgSkills = new Set(bg.skills);
 
   // Classe
-  let classCard = `<div class="card"><h3>Classe</h3>
-    <select data-bind="classId" class="big-select">${opt('', 'Escolha uma classe…', s.classId)}${CLASSES.map(c => opt(c.id, c.name, s.classId)).join('')}</select>`;
+  let classCard = `<div class="card"><h3>${d.multi ? 'Classe inicial' : 'Classe'}</h3>
+    ${pickBtn('classId', '', cls.id ? cls.name : '', 'Escolha uma classe…', 'big')}
+    ${d.multi ? `<p class="small muted">Nível em ${esc(cls.name)}: <b class="lvl-total">${s.level}</b> (o restante do nível de personagem)</p>` : ''}`;
   if (cls.id) {
     classCard += `<dl class="facts">
       <dt>Dado de Vida</dt><dd>d${cls.hd}</dd>
@@ -516,11 +859,11 @@ function renderBuild(s, d) {
       <dt>Armaduras</dt><dd>${cls.armor.map(a => a === 'shield' ? 'Escudos' : ARMOR_TYPE_NAME[a]).join(', ') || 'Nenhuma'}</dd>
       <dt>Armas</dt><dd>${cls.weapons.map(w => ({ simple: 'Simples', martial: 'Marciais', 'martial-light': 'Marciais com Leve', 'martial-finesse-light': 'Marciais com Acuidade ou Leve' }[w])).join(', ')}</dd>
       ${cls.tools ? `<dt>Ferramentas</dt><dd>${esc(cls.tools)}</dd>` : ''}
-      ${d.casterType ? `<dt>Conjuração</dt><dd>${AB[d.castAb].name}</dd>` : ''}
+      ${casterFor(d, cls.id) ? `<dt>Conjuração</dt><dd>${AB[casterFor(d, cls.id).ability].name}</dd>` : ''}
     </dl>
-    <label class="field">Subclasse ${d.level < 3 ? '<small class="muted">(disponível no nível 3)</small>' : ''}
-      <select data-bind="subclass">${opt('', '—', s.subclass)}${cls.subclasses.map(x => opt(x.id, x.name, s.subclass)).join('')}</select></label>
-    ${(cls.choices || []).map(ch => `<label class="field">${ch.label}<select data-bind="classChoices.${ch.key}">${opt('', 'Escolha…', s.classChoices[ch.key])}${ch.options.map(o => opt(o.id, `${o.name} — ${o.desc}`, s.classChoices[ch.key])).join('')}</select></label>`).join('')}
+    <label class="field">Subclasse ${d.clsLevel < 3 ? `<small class="muted">(disponível no nível 3${d.multi ? ' de ' + esc(cls.name) : ''})</small>` : ''}
+      ${pickBtn('subclass', 'p', d.sub ? d.sub.name : (cls.subclasses.find(x => x.id === s.subclass) || {}).name, '—')}</label>
+    ${(cls.choices || []).map(ch => `<label class="field">${ch.label}${pickBtn('classChoice', 'p:' + ch.key, (ch.options.find(o => o.id === s.classChoices[ch.key]) || {}).name, 'Escolha…')}</label>`).join('')}
     <div class="field"><span>Perícias de classe — escolha ${cls.skillCount} <b class="${skillPicks.length === cls.skillCount ? 'ok' : 'pending'}">(${skillPicks.length}/${cls.skillCount})</b></span>
       <div class="checks">${list.map(id => {
         const on = skillPicks.includes(id), fromBg = bgSkills.has(id);
@@ -532,22 +875,19 @@ function renderBuild(s, d) {
       <div class="row gap"><button class="btn sm" data-action="equipClass" data-o="A">Adicionar opção A</button><button class="btn sm" data-action="equipClass" data-o="B">Adicionar ${cls.gpB} PO</button>
       ${s.equipAdded.class ? `<small class="muted">✓ já adicionado (${s.equipAdded.class})</small>` : ''}</div></div>`;
   }
+  if (cls.id) classCard += renderMulticlass(s, d);
   classCard += '</div>';
 
   // Espécie
   let speciesCard = `<div class="card"><h3>Espécie</h3>
-    <select data-bind="species" class="big-select">${opt('', 'Escolha uma espécie…', s.species)}${SPECIES.map(x => opt(x.id, x.name, s.species)).join('')}</select>`;
+    ${pickBtn('species', '', sp.id ? sp.name : '', 'Escolha uma espécie…', 'big')}`;
   if (sp.id) {
     speciesCard += `<dl class="facts"><dt>Tamanho</dt><dd>${sp.sizeChoice ? `<select data-bind="size">${opt('', 'Escolha…', s.size)}${opt('Médio', 'Médio', s.size)}${opt('Pequeno', 'Pequeno', s.size)}</select>` : sp.size}</dd>
       <dt>Deslocamento</dt><dd>${ftToM(sp.speed)} m</dd><dt>Visão no escuro</dt><dd>${sp.darkvision ? ftToM(sp.darkvision) + ' m' : '—'}</dd></dl>`;
     for (const ch of sp.choices || []) {
       const val = s.speciesChoices[ch.key] || '';
-      let options;
-      if (ch.skillAny) options = SKILLS.map(x => opt(x.id, x.name, val)).join('');
-      else if (ch.featOrigin) options = FEATS.filter(f => f.cat === 'Origem' && (f.id !== bg.feat || FEAT_REPEATABLE.has(f.id) || f.id === val))
-        .map(f => opt(f.id, f.name + (f.id === bg.feat && !FEAT_REPEATABLE.has(f.id) ? ' (já vem do antecedente)' : ''), val)).join('');
-      else options = ch.options.map(o => opt(o.id, o.name, val)).join('');
-      speciesCard += `<label class="field">${ch.label}<select data-bind="speciesChoices.${ch.key}">${opt('', 'Escolha…', val)}${options}</select></label>`;
+      const valName = ch.skillAny ? (SK[val] || {}).name : ch.featOrigin ? (FEAT[val] || {}).name : (ch.options.find(o => o.id === val) || {}).name;
+      speciesCard += `<label class="field">${ch.label}${pickBtn('speciesChoice', ch.key, valName, 'Escolha…')}</label>`;
       if (ch.featOrigin && val) speciesCard += `<p class="small muted">${esc(FEAT[val].desc)}</p>`;
     }
     speciesCard += `<ul class="traits">${sp.traits.map(([l, n, t]) => `<li class="${l > d.level ? 'future' : ''}"><b>${n}</b>${l > 1 ? ` <small>(nível ${l})</small>` : ''} — ${t}</li>`).join('')}</ul>`;
@@ -556,7 +896,7 @@ function renderBuild(s, d) {
 
   // Antecedente
   let bgCard = `<div class="card"><h3>Antecedente</h3>
-    <select data-bind="background" class="big-select">${opt('', 'Escolha um antecedente…', s.background)}${BACKGROUNDS.map(x => opt(x.id, x.name, s.background)).join('')}</select>`;
+    ${pickBtn('background', '', bg.id ? bg.name : '', 'Escolha um antecedente…', 'big')}`;
   if (bg.id) {
     const feat = FEAT[bg.feat];
     const abOpts = (v) => bg.abilities.map(a => opt(a, AB[a].name, v)).join('');
@@ -611,14 +951,17 @@ function renderBuild(s, d) {
       ${methodInfo}
     </div>
     ${method === 'pointbuy' && pbLeft < 0 ? '<p class="small bad-text">Os valores atuais passam do orçamento — reduza algum atributo.</p>' : ''}
-    <div class="table-wrap"><table class="ab-table"><thead><tr><th>Atributo</th><th>Base</th><th>Antecedente</th><th>Extra <small>(talentos, itens)</small></th><th>Total</th><th>Mod.</th></tr></thead><tbody>
+    <div class="table-wrap"><table class="ab-table"><thead><tr><th>Atributo</th><th>Base</th><th>Antecedente</th><th>Talentos</th><th>Extra <small>(itens, mestre)</small></th><th>Total</th><th>Mod.</th></tr></thead><tbody>
     ${ABILITIES.map(a => `<tr><td><b>${a.name}</b></td>
       <td>${baseCell(a)}</td>
       <td class="c">${d.bgBonus[a.id] ? '+' + d.bgBonus[a.id] : '—'}</td>
+      <td class="c">${d.featBonus[a.id] ? '+' + d.featBonus[a.id] : '—'}</td>
       <td>${stepper(a.id, 'extra', +s.abilityExtra[a.id] || 0, (+s.abilityExtra[a.id] || 0) > -10, d.scores[a.id] < cap)}${d.capstone[a.id] ? ' <small>+4 nível 20</small>' : ''}</td>
       <td class="c"><b>${d.scores[a.id]}</b>${d.scores[a.id] > cap ? ` <small class="bad-text">&gt;${cap}</small>` : ''}</td><td class="c"><b>${fmt(d.mods[a.id])}</b></td></tr>`).join('')}
     </tbody></table></div>
-    <p class="small muted">Nenhum atributo passa de ${cap}${cap === 20 ? ' (30 com Dádivas Épicas)' : ''}.</p></div>`;
+    <p class="small muted">Nenhum atributo passa de ${cap}${cap === 20 ? ' (30 com Dádivas Épicas)' : ''}. Os aumentos de talento (Aumento no Valor de Atributo e talentos gerais) entram sozinhos na coluna <b>Talentos</b> — escolha o atributo em Características → Talentos.</p>
+    ${d.featAbPending.length ? `<p class="small bad-text">⚠ ${d.featAbPending.length} talento(s) sem atributo escolhido — escolha em Características → Talentos.</p>` : ''}
+    ${ABILITIES.some(a => +s.abilityExtra[a.id] > 0) && (s.feats || []).some(f => FEAT_AB[f.featId]) ? '<p class="small pending">Se você tinha lançado aumentos de talento em "Extra", tire de lá: agora eles contam sozinhos na coluna Talentos.</p>' : ''}</div>`;
 
   // Idiomas
   const langCard = `<div class="card"><h3>Idiomas</h3>
@@ -631,6 +974,49 @@ function renderBuild(s, d) {
   return `<div class="grid build">${classCard}${speciesCard}${bgCard}${langCard}${abCard}</div>`;
 }
 
+
+
+// ---------------------------------------------------------------- Multiclasse (Construção)
+const TRAIN_NAME = { light: 'Armadura leve', medium: 'Armadura média', heavy: 'Armadura pesada', shield: 'Escudos', martial: 'Armas marciais' };
+function mcGainText(id) {
+  const m = MULTICLASS[id] || {};
+  const parts = [...(m.armor || []), ...(m.weapons || [])].map(x => TRAIN_NAME[x]);
+  if (m.skills) parts.push(`${m.skills} perícia ${m.skillList === 'any' ? 'qualquer' : 'da lista da classe'}`);
+  if (m.tools) parts.push(m.tools);
+  return parts.join(', ') || 'Nenhuma proficiência (só o Dado de Vida)';
+}
+
+function renderMulticlass(s, d) {
+  const others = d.classes.filter(c => !c.primary);
+  const rows = others.map(c => {
+    const m = s.multiclass[c.idx];
+    const pick = d.mcPicks.find(p => p.idx === c.idx);
+    const caster = casterFor(d, c.classId);
+    const issue = multiclassReqFail(c.classId, d.scores);
+    return `<div class="mc-row">
+      <div class="mc-head"><b>${esc(c.cls.name)}</b>
+        <span class="muted">nível <b class="lvl-total">${c.level}</b></span>
+        <label>Subclasse ${pickBtn('subclass', String(c.idx), c.sub ? c.sub.name : (c.cls.subclasses.find(x => x.id === m.subclass) || {}).name, c.level < 3 ? '(nível 3)' : '—', '', c.level < 3 ? 'Disponível no nível 3 desta classe' : '')}</label>
+        <button class="btn sm danger" data-action="delClass" data-i="${c.idx}">Remover</button></div>
+      ${issue ? `<p class="small bad-text">⚠ ${esc(issue)}</p>` : ''}
+      <p class="small">Dado de Vida d${c.cls.hd}${caster ? ` · Conjuração (${AB[caster.ability].short}), até ${caster.maxLevel}º nível` : ''} · <span class="muted">Ganha: ${esc(mcGainText(c.classId))}</span></p>
+      ${(c.cls.choices || []).map(ch => `<label class="field small">${ch.label}${pickBtn('classChoice', c.idx + ':' + ch.key, (ch.options.find(o => o.id === (m.classChoices || {})[ch.key]) || {}).name, 'Escolha…')}</label>`).join('')}
+      ${pick ? `<div class="field"><span class="small">Perícia de ${esc(c.cls.name)} — escolha ${pick.count} <b class="${pick.used === pick.count ? 'ok' : 'pending'}">(${pick.used}/${pick.count})</b></span>
+        <div class="checks">${pick.list.map(id => {
+          const on = (m.classSkills || []).includes(id);
+          const already = !on && d.skills[id].auto;
+          const dis = !on && (pick.used >= pick.count || already);
+          return `<label class="chk${on ? ' on' : ''}${dis ? ' dis' : ''}"><input type="checkbox" data-action="mcSkill" data-i="${c.idx}" data-id="${id}" ${on ? 'checked' : ''} ${dis ? 'disabled' : ''}>${SK[id].name}${already ? ' <small>(já tem)</small>' : ''}</label>`;
+        }).join('')}</div></div>` : ''}
+    </div>`;
+  }).join('');
+  return `<div class="mc-section">
+    ${d.multi ? `<div class="mc-total">Nível de personagem <b>${d.level}</b> · ${esc(classLine(s))}</div>` : ''}
+    ${d.mcIssues.length ? `<div class="warn">⚠ ${d.mcIssues.map(esc).join('<br>⚠ ')}</div>` : ''}
+    ${rows}
+    <p class="small muted mc-hint">${d.multi ? 'Para subir o nível de uma destas classes ou entrar em outra' : 'Multiclasse: para entrar em outra classe'}, use <b>⬆ Subir de nível</b> no topo da ficha.</p>
+  </div>`;
+}
 
 // ---------------------------------------------------------------- Atributos & Perícias
 function limitBadge(used, max) {
@@ -669,7 +1055,7 @@ function renderMain(s, d) {
     </div>`;
   }).join('');
 
-  const toolsAuto = [...new Set([d.bg.tool, d.cls.tools].filter(Boolean))];
+  const toolsAuto = [...new Set([d.bg.tool, d.cls.tools, ...d.mcTools].filter(Boolean))];
   const armorList = [...d.armorTrain].map(a => a === 'shield' ? 'Escudos' : ARMOR_TYPE_NAME[a]).join(', ') || 'Nenhuma';
   const weaponList = [...d.weaponTrain].map(w => ({ simple: 'Simples', martial: 'Marciais', 'martial-light': 'Marciais com Leve', 'martial-finesse-light': 'Marciais com Acuidade/Leve' }[w])).join(', ');
 
@@ -707,11 +1093,6 @@ function renderMain(s, d) {
 }
 
 // ---------------------------------------------------------------- Combate
-function weaponOptions(d) {
-  const groups = [['simple', 'm', 'Armas simples corpo a corpo'], ['simple', 'r', 'Armas simples à distância'], ['martial', 'm', 'Armas marciais corpo a corpo'], ['martial', 'r', 'Armas marciais à distância']];
-  return groups.map(([c, k, l]) => `<optgroup label="${l}">${WEAPONS.filter(w => w.cat === c && w.kind === k).map(w =>
-    opt(w.id, `${w.name} — ${w.dmg} ${w.dtype.toLowerCase()}${weaponProficient(d, w) ? '' : ' (sem proficiência)'}`, '')).join('')}</optgroup>`).join('');
-}
 
 // Adiciona a arma ao inventário (se ainda não estiver) e aos ataques
 function addWeaponTo(s, weaponId, { inventory = true, attack = true } = {}) {
@@ -775,7 +1156,7 @@ function renderCombat(s, d) {
     </div>`;
   }).join('');
 
-  const stats = d.cls.stats ? d.cls.stats({ level: d.level, mods: d.mods, pb: d.pb }) : [];
+  const stats = classStats(d);
 
   return `<div class="grid combat">
     <div class="card wide">
@@ -783,8 +1164,7 @@ function renderCombat(s, d) {
       ${stats.length ? `<div class="stat-chips">${stats.map(([k, v]) => `<span class="stat-chip"><small>${k}</small><b>${v}</b></span>`).join('')}</div>` : ''}
       ${attacks || '<p class="muted">Nenhum ataque. Adicione uma arma abaixo.</p>'}
       <div class="row gap wrap add-row">
-        <select id="weaponNew"><option value="">Escolha uma arma…</option>${weaponOptions(d)}</select>
-        <button class="btn sm primary" data-action="addWeapon">Adicionar arma</button>
+        ${pickBtn('weapon', '', '', '＋ Adicionar arma', 'add')}
         <button class="btn sm" data-action="addUnarmed">Ataque desarmado</button>
         <button class="btn sm" data-action="addCustomAttack">Ataque personalizado</button>
       </div>
@@ -793,7 +1173,7 @@ function renderCombat(s, d) {
 
     <div class="card">
       <h3>Defesa</h3>
-      <label class="field">Armadura <select data-bind="armor">${ARMORS.map(a => opt(a.id, a.type === 'none' ? a.name : `${a.name} (${ARMOR_TYPE_NAME[a.type]}, CA ${a.base}${a.type === 'light' ? ' + DES' : a.type === 'medium' ? ' + DES máx. 2' : ''})`, s.armor)).join('')}</select></label>
+      <label class="field">Armadura ${pickBtn('armor', '', (ARMOR[s.armor] || ARMOR.none).name, '')}</label>
       ${ARMOR[s.armor] && ARMOR[s.armor].stealth ? '<p class="small muted">Desvantagem em Furtividade.</p>' : ''}
       <label class="chk-inline"><input type="checkbox" data-bind="shield" ${s.shield ? 'checked' : ''}> Escudo (+2)</label>
       <div class="row gap wrap">
@@ -822,17 +1202,18 @@ function renderCombat(s, d) {
 const CLASS_SPELL_LIST = { bard: 'bard', cleric: 'cleric', druid: 'druid', paladin: 'paladin', ranger: 'ranger', sorcerer: 'sorcerer', warlock: 'warlock', wizard: 'wizard' };
 const LIST_NAMES = { bard: 'Bardo', cleric: 'Clérigo', druid: 'Druida', paladin: 'Paladino', ranger: 'Patrulheiro', sorcerer: 'Feiticeiro', warlock: 'Bruxo', wizard: 'Mago' };
 
-function defaultSpellList(d) {
-  if (d.casterType === 'third') return 'wizard';
-  return CLASS_SPELL_LIST[d.cls.id] || '';
-}
+// Conjuradores: cada classe conjuradora (d.casters) tem atributo, CD, limites, lista e nível máximo próprios.
+// Uma magia de origem "Classe" pertence a sp.classId (ou à classe inicial, se ausente).
+const spellClassOf = (sp, s) => sp.classId || s.classId;
+const casterFor = (d, classId) => d.casters.find(c => c.classId === classId) || null;
+function defaultSpellList(d) { return d.casters[0] ? d.casters[0].list : ''; }
+// Maior nível de magia que o personagem consegue lançar (para filtros gerais)
 function maxSpellLevel(d) {
-  if (d.pact) return d.pact.level;
-  return d.slots.length;
+  return Math.max(d.slots.length, d.pact ? d.pact.level : 0, ...d.casters.map(c => c.maxLevel), 0);
 }
 function catFilter(s, d) {
   const f = ui.spellFilter = Object.assign({ q: '', lvl: '', list: null, school: '', castable: true }, ui.spellFilter);
-  const key = s.id + ':' + d.cls.id + ':' + d.casterType;
+  const key = s.id + ':' + d.casters.map(c => c.classId).join(',');
   if (f.list === null || f.key !== key) {
     f.list = ''; f.key = key; f.source = 'extra'; f.lvl = ''; f.castable = false;
   }
@@ -842,25 +1223,27 @@ function catFilter(s, d) {
 // Origem da magia: 'class' conta nos limites; 'always' (sempre preparada) e 'extra' (espécie, talento, item) não contam.
 const SPELL_SOURCES = { class: 'Classe', always: 'Sempre preparada', extra: 'Espécie / talento / item' };
 const spellSource = (sp) => sp.source || 'class';
-function spellCounts(s) {
-  const cls = s.spells.filter(x => spellSource(x) === 'class');
+// Contagem das magias de origem "Classe" de uma classe (padrão: classe inicial)
+function spellCounts(s, classId = s.classId) {
+  const cls = s.spells.filter(x => spellSource(x) === 'class' && spellClassOf(x, s) === classId);
   return { cantrips: cls.filter(x => +x.level === 0).length, prepared: cls.filter(x => +x.level > 0 && x.prepared).length, book: cls.filter(x => +x.level > 0).length };
 }
 // Listas de onde a classe pode tirar magias (Segredos Mágicos do Bardo no nível 10 abre outras)
-function allowedLists(d) {
-  const base = defaultSpellList(d);
-  if (!base) return [];
-  if (d.cls.id === 'bard' && d.level >= 10) return ['bard', 'cleric', 'druid', 'wizard'];
-  return [base];
+function allowedListsFor(c) {
+  if (!c) return [];
+  if (c.classId === 'bard' && c.level >= 10) return ['bard', 'cleric', 'druid', 'wizard'];
+  return [c.list];
 }
-// Por que esta magia não pode entrar como magia de classe? ('' = pode)
-function classSpellBlock(sp, s, d) {
-  if (!d.casterType) return `${d.cls.name || 'Sua classe'} não conjura magias neste nível — adicione como "${SPELL_SOURCES.extra}".`;
-  const lists = allowedLists(d);
-  if (!sp.classes.some(c => lists.includes(c))) return `${sp.name} não está na lista de ${lists.map(c => LIST_NAMES[c]).join('/')}.`;
-  const c = spellCounts(s);
-  if (sp.level === 0 && c.cantrips >= d.cantrips) return d.cantrips ? `Você já tem os ${d.cantrips} truques permitidos no nível ${d.level}.` : `${d.cls.name} não aprende truques.`;
-  if (sp.level > maxSpellLevel(d)) return `No nível ${d.level} você só lança magias até o ${maxSpellLevel(d)}º nível.`;
+const casterLabel = (c) => c.name + (c.type === 'third' && c.sub ? ` (${c.sub.name})` : '');
+const spellMaxOf = (c) => c.classId === 'wizard' ? 6 + 2 * (c.level - 1) : c.prepared; // grimório do Mago x preparadas
+// Por que esta magia não pode entrar como magia da classe c? ('' = pode)
+function classSpellBlock(sp, s, d, c = d.casters[0]) {
+  if (!c) return `${d.cls.name || 'Sua classe'} não conjura magias neste nível — adicione como "${SPELL_SOURCES.extra}".`;
+  const lists = allowedListsFor(c);
+  if (!sp.classes.some(x => lists.includes(x))) return `${sp.name} não está na lista de ${lists.map(x => LIST_NAMES[x]).join('/')}.`;
+  const n = spellCounts(s, c.classId);
+  if (sp.level === 0 && n.cantrips >= c.cantrips) return c.cantrips ? `${casterLabel(c)} já tem os ${c.cantrips} truques permitidos no nível ${c.level}.` : `${c.name} não aprende truques.`;
+  if (sp.level > c.maxLevel) return `${c.name} nível ${c.level} só lança magias até o ${c.maxLevel}º nível.`;
   return '';
 }
 
@@ -917,56 +1300,58 @@ function refreshCatalog() {
 
 
 
-// ---------------------------------------------------------------- Seletor de magias da classe (chips)
-function pickerState(s, d) {
-  const wizard = d.cls.id === 'wizard';
-  const mine = s.spells.filter(x => spellSource(x) === 'class' && x.cat);
+// ---------------------------------------------------------------- Seletor de magias da classe (chips), um por classe conjuradora
+function pickerState(s, d, c) {
+  const wizard = c.classId === 'wizard';
+  const mine = s.spells.filter(x => spellSource(x) === 'class' && x.cat && spellClassOf(x, s) === c.classId);
   return {
     wizard,
     cantripIds: new Set(mine.filter(x => +x.level === 0).map(x => x.cat)),
     spellIds: new Set(mine.filter(x => +x.level > 0 && (wizard || x.prepared)).map(x => x.cat)),
-    spellMax: wizard ? 6 + 2 * (d.level - 1) : d.prepared,
+    spellMax: spellMaxOf(c),
   };
 }
 
-function renderSpellPicker(s, d) {
-  const lists = allowedLists(d);
-  const maxLvl = maxSpellLevel(d);
-  const st = pickerState(s, d);
+function renderSpellPicker(s, d, c) {
+  const lists = allowedListsFor(c);
+  const maxLvl = c.maxLevel;
+  const st = pickerState(s, d, c);
   const q = (ui.pickerQ || '').trim().toLowerCase().normalize('NFD').replace(/[̀-ͯ]/g, '');
-  const pool = SPELLS.filter(sp => sp.classes.some(c => lists.includes(c)) && sp.level <= maxLvl);
-  const cantripFull = st.cantripIds.size >= d.cantrips;
+  const pool = SPELLS.filter(sp => sp.classes.some(x => lists.includes(x)) && sp.level <= maxLvl);
+  const cantripFull = st.cantripIds.size >= c.cantrips;
   const spellFull = st.spellIds.size >= st.spellMax;
-  const detailId = ui.spellDetail && SPELL[ui.spellDetail] ? ui.spellDetail : null;
+  const [detailCls, detailSpell] = (ui.spellDetail || '').split(':');
+  const detailId = detailCls === c.classId && SPELL[detailSpell] ? detailSpell : null;
+  const dk = (id) => `${c.classId}:${id}`;
 
   const chip = (sp, on, full) => {
     const dis = !on && full;
     const hide = q && !sp.search.includes(q);
     return `<span class="chk spell-chip${on ? ' on' : ''}${dis ? ' dis' : ''}${detailId === sp.id ? ' open' : ''}" data-search="${esc(sp.search)}"${hide ? ' hidden' : ''}>
-      <input type="checkbox" data-action="pickSpell" data-id="${sp.id}" ${on ? 'checked' : ''} ${dis ? 'disabled' : ''} title="${on ? 'Remover' : dis ? 'Limite atingido' : 'Selecionar'}" aria-label="Selecionar ${esc(sp.name)}">
-      <button class="pill-name" data-action="spellDetail" data-id="${sp.id}" title="Ver detalhes">${esc(sp.name)}${sp.conc ? ' <small>C</small>' : ''}${sp.ritual ? ' <small>R</small>' : ''}</button></span>`;
+      <input type="checkbox" data-action="pickSpell" data-id="${sp.id}" data-cls="${c.classId}" ${on ? 'checked' : ''} ${dis ? 'disabled' : ''} title="${on ? 'Remover' : dis ? 'Limite atingido' : 'Selecionar'}" aria-label="Selecionar ${esc(sp.name)}">
+      <button class="pill-name" data-action="spellDetail" data-id="${dk(sp.id)}" title="Ver detalhes">${esc(sp.name)}${sp.conc ? ' <small>C</small>' : ''}${sp.ritual ? ' <small>R</small>' : ''}</button></span>`;
   };
   const group = (title, arr, ids, full) => {
     if (!arr.length) return '';
     const open = arr.find(sp => sp.id === detailId);
     return `<div class="pick-group"><h4>${title}</h4><div class="checks">${arr.map(sp => chip(sp, ids.has(sp.id), full)).join('')}</div>
       ${open ? `<div class="spell-detail">${spellCardHtml(open, false, true)}
-        <div class="row gap">${ids.has(open.id) ? `<button class="btn sm danger" data-action="pickSpell" data-id="${open.id}">Remover</button>`
-          : full ? `<button class="btn sm" disabled>Limite atingido</button>` : `<button class="btn sm primary" data-action="pickSpell" data-id="${open.id}">Selecionar</button>`}
-          <button class="btn sm" data-action="spellDetail" data-id="${open.id}">Fechar</button></div></div>` : ''}</div>`;
+        <div class="row gap">${ids.has(open.id) ? `<button class="btn sm danger" data-action="pickSpell" data-id="${open.id}" data-cls="${c.classId}">Remover</button>`
+          : full ? `<button class="btn sm" disabled>Limite atingido</button>` : `<button class="btn sm primary" data-action="pickSpell" data-id="${open.id}" data-cls="${c.classId}">Selecionar</button>`}
+          <button class="btn sm" data-action="spellDetail" data-id="${dk(open.id)}">Fechar</button></div></div>` : ''}</div>`;
   };
   const status = (n, max) => `<b class="${n === max ? 'ok' : n > max ? 'bad-text' : 'pending'}">${n}/${max}</b>`;
   const byLvl = {};
   pool.filter(sp => sp.level > 0).forEach(sp => (byLvl[sp.level] = byLvl[sp.level] || []).push(sp));
 
   return `<div class="card span2 picker">
-    <div class="card-head"><h3>Magias de ${esc(d.cls.name)}</h3>
-      <input id="pickerFilter" placeholder="Filtrar por nome…" autocomplete="off" value="${esc(ui.pickerQ || '')}"></div>
-    <p class="small muted">Marque a caixinha para escolher; clique no nome para ver os detalhes. Lista de ${lists.map(c => LIST_NAMES[c]).join(', ')}, até o ${maxLvl}º nível.</p>
-    ${d.cantrips ? `<section class="pick-sec"><div class="pick-head"><span>Truques ${status(st.cantripIds.size, d.cantrips)}</span><small class="muted">lançados à vontade, sem gastar espaço de magia</small></div>
+    <div class="card-head"><h3>Magias de ${esc(casterLabel(c))}${d.multi ? ` <small class="muted">nível ${c.level}</small>` : ''}</h3>
+      <input class="picker-filter" id="pickerFilter-${c.classId}" placeholder="Filtrar por nome…" autocomplete="off" value="${esc(ui.pickerQ || '')}"></div>
+    <p class="small muted">Marque a caixinha para escolher; clique no nome para ver os detalhes. Lista de ${lists.map(x => LIST_NAMES[x]).join(', ')}, até o ${maxLvl}º nível · ${AB[c.ability].name}, CD ${c.dc}.</p>
+    ${c.cantrips ? `<section class="pick-sec"><div class="pick-head"><span>Truques ${status(st.cantripIds.size, c.cantrips)}</span><small class="muted">lançados à vontade, sem gastar espaço de magia</small></div>
       ${group('', pool.filter(sp => sp.level === 0), st.cantripIds, cantripFull)}</section>` : ''}
     <section class="pick-sec"><div class="pick-head"><span>${st.wizard ? 'Magias do grimório' : 'Magias preparadas'} ${status(st.spellIds.size, st.spellMax)}</span>
-      <small class="muted">${st.wizard ? `o grimório começa com 6 e ganha 2 por nível; você prepara ${d.prepared} delas em "Minhas magias"` : 'gastam espaços de magia'}</small></div>
+      <small class="muted">${st.wizard ? `o grimório começa com 6 e ganha 2 por nível; você prepara ${c.prepared} delas em "Minhas magias"` : 'gastam espaços de magia'}</small></div>
       ${Object.entries(byLvl).map(([l, arr]) => group(l + 'º nível', arr, st.spellIds, spellFull)).join('')}</section>
   </div>`;
 }
@@ -1069,11 +1454,11 @@ document.addEventListener('pointerdown', hideHoverCard, true);
 
 // ---------------------------------------------------------------- Magias
 function renderSpells(s, d) {
-  const casterName = { full: 'Conjurador completo', half: 'Meio-conjurador', third: 'Um terço de conjurador', pact: 'Magia de Pacto' }[d.casterType];
+  const CASTER_NAME = { full: 'Conjurador completo', half: 'Meio-conjurador', third: 'Um terço de conjurador', pact: 'Magia de Pacto' };
   const byLvl = Array.from({ length: 10 }, () => []);
   s.spells.forEach((sp, i) => byLvl[Math.min(9, Math.max(0, +sp.level || 0))].push([sp, i]));
-  const { cantrips: cantripCount, prepared: preparedCount, book: bookCount } = spellCounts(s);
-  const maxLvl = maxSpellLevel(d);
+  const main = d.casters[0] || null;
+  const mainCount = main ? spellCounts(s, main.classId) : { cantrips: 0, prepared: 0, book: 0 };
 
   const slotsHtml = d.slots.map((n, i) => {
     const lvl = i + 1; const used = Math.min(n, s.slotsUsed[lvl] || 0);
@@ -1083,14 +1468,16 @@ function renderSpells(s, d) {
   const spellRow = ([sp, i]) => {
     const src = spellSource(sp);
     const fixedPrep = src !== 'class';
-    const tooHigh = +sp.level > maxLvl;
+    const own = src === 'class' ? casterFor(d, spellClassOf(sp, s)) : null;
+    const orphan = src === 'class' && !own && d.casters.length > 0;   // classe da magia saiu da ficha
+    const tooHigh = own ? +sp.level > own.maxLevel : false;
     return `<div class="spell${sp.prepared || +sp.level === 0 || fixedPrep ? ' prep' : ''}" data-myspell="${sp.id}">
     ${+sp.level === 0 ? '<span class="cantrip-dot" title="Truque">✦</span>'
       : fixedPrep ? `<span class="cantrip-dot" title="${SPELL_SOURCES[src]} — não conta no limite">★</span>`
       : `<input type="checkbox" data-prep="${i}" ${sp.prepared ? 'checked' : ''} ${tooHigh && !sp.prepared ? 'disabled' : ''} title="${tooHigh ? 'Acima do seu nível máximo de magia' : 'Preparada'}">`}
     <input data-bind="spells.${i}.name" value="${esc(sp.name)}" placeholder="Nome da magia" class="spell-name">
     ${spellInfoHtml(sp)}
-    <span class="tags">${src !== 'class' ? `<span class="badge">${src === 'always' ? 'Sempre' : 'Extra'}</span>` : ''}${tooHigh ? '<span class="badge bad" title="Acima do seu nível máximo">nível alto</span>' : ''}${sp.conc ? '<span class="badge">C</span>' : ''}${sp.ritual ? '<span class="badge">R</span>' : ''}</span>
+    <span class="tags">${d.casters.length > 1 && own ? `<span class="badge">${esc(own.name)}</span>` : ''}${orphan ? '<span class="badge bad" title="A classe desta magia não está na ficha">sem classe</span>' : ''}${src !== 'class' ? `<span class="badge">${src === 'always' ? 'Sempre' : 'Extra'}</span>` : ''}${tooHigh ? '<span class="badge bad" title="Acima do seu nível máximo">nível alto</span>' : ''}${sp.conc ? '<span class="badge">C</span>' : ''}${sp.ritual ? '<span class="badge">R</span>' : ''}</span>
     <details><summary>editar</summary><div class="row gap wrap small">
       <label>Origem <select data-src="${i}">${Object.entries(SPELL_SOURCES).map(([k, v]) => opt(k, v, src)).join('')}</select></label>
       <label>Nível <select data-bind="spells.${i}.level" data-num>${Array.from({ length: 10 }, (_, l) => opt(l, l === 0 ? 'Truque' : l + 'º', sp.level)).join('')}</select></label>
@@ -1109,32 +1496,42 @@ function renderSpells(s, d) {
   const cantripList = byLvl[0].map(spellRow).join('');
   const spellLists = byLvl.slice(1).map((arr, l) => arr.length ? `<div class="spell-group"><h4>${l + 1}º nível</h4>${arr.map(spellRow).join('')}</div>` : '').join('');
   const lists = `<div class="my-spells">
-    <section><h3>Truques ${d.cantrips ? limitBadge(cantripCount, d.cantrips) : ''}</h3>${cantripList || '<p class="muted small">Nenhum truque escolhido.</p>'}</section>
-    <section><h3>Magias ${d.casterType ? `<small class="muted">preparadas</small> ${limitBadge(preparedCount, d.prepared)}` : ''}</h3>${spellLists || '<p class="muted small">Nenhuma magia escolhida.</p>'}</section>
+    <section><h3>Truques ${d.casters.length === 1 && main.cantrips ? limitBadge(mainCount.cantrips, main.cantrips) : ''}</h3>${cantripList || '<p class="muted small">Nenhum truque escolhido.</p>'}</section>
+    <section><h3>Magias ${d.casters.length === 1 ? `<small class="muted">preparadas</small> ${limitBadge(mainCount.prepared, main.prepared)}` : ''}</h3>${spellLists || '<p class="muted small">Nenhuma magia escolhida.</p>'}</section>
   </div>`;
-  const abSel = `<select data-bind="spellAbility">${opt('', d.cls.castAb || d.casterType ? 'Padrão da classe' : 'Nenhum', s.spellAbility)}${['int', 'wis', 'cha'].map(a => opt(a, AB[a].name, s.spellAbility)).join('')}</select>`;
 
   return `<div class="grid spells">
     <div class="card">
       <h3>Conjuração</h3>
-      ${d.casterType ? `<p class="small muted">${casterName} · ${esc(d.cls.name)}${d.sub && d.casterType === 'third' ? ' (' + esc(d.sub.name) + ')' : ''}</p>` : '<p class="small muted">Sua classe não conjura magias neste nível. Se tiver magias de espécie ou talentos, escolha o atributo abaixo.</p>'}
-      <label class="field">Atributo de conjuração ${abSel}</label>
-      ${d.spell ? `<div class="vitals mini">
-        <div class="vital card"><span class="v-label">CD de resistência</span><span class="v-big">${d.spell.dc}</span></div>
-        <button class="vital card click" data-action="rollSpellAtk"><span class="v-label">Ataque mágico</span><span class="v-big">${fmt(d.spell.attack)}</span></button>
-        <div class="vital card"><span class="v-label">Modificador</span><span class="v-big">${fmt(d.mods[d.spell.ability])}</span></div>
-      </div>` : ''}
-      ${d.casterType ? `<dl class="facts">
-        ${d.cantrips ? `<dt>Truques</dt><dd>${limitBadge(cantripCount, d.cantrips)}</dd>` : ''}
-        <dt>Magias preparadas</dt><dd>${limitBadge(preparedCount, d.prepared)}</dd>
-        <dt>Nível máximo</dt><dd>${maxLvl}º</dd>
-        ${d.cls.id === 'wizard' ? `<dt>Grimório</dt><dd>${bookCount} magias <small class="muted">(começa com 6 e ganha 2 por nível: ${6 + 2 * (d.level - 1)} esperadas)</small></dd>` : ''}
-      </dl>` : ''}
-      ${d.casterType ? `<p class="small muted">Só magias de origem "Classe" contam nos limites. Magias sempre preparadas (subclasse, características) e de espécie/talento/item ficam de fora.</p>` : ''}
+      ${d.casters.length ? d.casters.map(c => {
+        const n = spellCounts(s, c.classId);
+        return `<div class="caster-block">
+        ${d.casters.length > 1 ? `<h4>${esc(casterLabel(c))} <small class="muted">nível ${c.level}</small></h4>` : ''}
+        <p class="small muted">${CASTER_NAME[c.type]} · ${esc(casterLabel(c))} · ${AB[c.ability].name}</p>
+        ${c.primary ? `<label class="field small">Atributo de conjuração <select data-bind="spellAbility">${opt('', 'Padrão da classe', s.spellAbility)}${['int', 'wis', 'cha'].map(a => opt(a, AB[a].name, s.spellAbility)).join('')}</select></label>` : ''}
+        <div class="vitals mini">
+          <div class="vital card"><span class="v-label">CD de resistência</span><span class="v-big">${c.dc}</span></div>
+          <button class="vital card click" data-action="rollSpellAtk" data-cls="${c.classId}"><span class="v-label">Ataque mágico</span><span class="v-big">${fmt(c.attack)}</span></button>
+          <div class="vital card"><span class="v-label">Modificador</span><span class="v-big">${fmt(d.mods[c.ability])}</span></div>
+        </div>
+        <dl class="facts">
+          ${c.cantrips ? `<dt>Truques</dt><dd>${limitBadge(n.cantrips, c.cantrips)}</dd>` : ''}
+          <dt>Magias preparadas</dt><dd>${limitBadge(n.prepared, c.prepared)}</dd>
+          <dt>Nível máximo</dt><dd>${c.maxLevel}º</dd>
+          ${c.classId === 'wizard' ? `<dt>Grimório</dt><dd>${n.book} magias <small class="muted">(começa com 6 e ganha 2 por nível: ${spellMaxOf(c)} esperadas)</small></dd>` : ''}
+        </dl></div>`;
+      }).join('') : `<p class="small muted">Sua classe não conjura magias neste nível. Se tiver magias de espécie ou talentos, escolha o atributo abaixo.</p>
+        <label class="field">Atributo de conjuração <select data-bind="spellAbility">${opt('', 'Nenhum', s.spellAbility)}${['int', 'wis', 'cha'].map(a => opt(a, AB[a].name, s.spellAbility)).join('')}</select></label>
+        ${d.spell ? `<div class="vitals mini">
+          <div class="vital card"><span class="v-label">CD de resistência</span><span class="v-big">${d.spell.dc}</span></div>
+          <button class="vital card click" data-action="rollSpellAtk"><span class="v-label">Ataque mágico</span><span class="v-big">${fmt(d.spell.attack)}</span></button>
+          <div class="vital card"><span class="v-label">Modificador</span><span class="v-big">${fmt(d.mods[d.spell.ability])}</span></div>
+        </div>` : ''}`}
+      ${d.casters.length ? `<p class="small muted">Só magias de origem "Classe" contam nos limites. Magias sempre preparadas (subclasse, características) e de espécie/talento/item ficam de fora.${d.casters.filter(c => c.type !== 'pact').length > 1 ? ' Espaços de magia pela tabela de multiclasse.' : ''}</p>` : ''}
       ${d.slots.length ? `<h3>Espaços de magia</h3><div class="slots">${slotsHtml}</div>` : ''}
       ${d.pact ? `<h3>Espaços de Pacto (${d.pact.level}º nível)</h3><div class="slots"><div class="slot"><span class="slot-l">${d.pact.level}º</span>${pips(d.pact.count, d.pact.count - Math.min(d.pact.count, s.pactUsed), 'pactPip', `data-max="${d.pact.count}"`)}</div></div><p class="small muted">Recuperados em descanso curto ou longo.</p>` : ''}
     </div>
-    ${d.casterType ? renderSpellPicker(s, d) : ''}
+    ${d.casters.map(c => renderSpellPicker(s, d, c)).join('')}
     <div class="card wide">
       ${lists}
       <details class="add-res"><summary>Adicionar magia personalizada (fora do catálogo)</summary>
@@ -1180,9 +1577,7 @@ function renderInventory(s, d) {
         <button class="btn sm primary" data-action="addItem">Adicionar item</button>
       </div>
       <div class="row gap wrap add-row">
-        <select id="gearNew"><option value="">Arma, armadura ou escudo…</option>${weaponOptions(d)}
-          <optgroup label="Armaduras">${ARMORS.filter(a => a.type !== 'none').map(a => opt('a:' + a.id, `${a.name} — ${ARMOR_TYPE_NAME[a.type]}, CA ${a.base}`, '')).join('')}${opt('a:shield', 'Escudo — +2 CA', '')}</optgroup></select>
-        <button class="btn sm" data-action="addGearItem">Adicionar equipamento</button>
+        ${pickBtn('gear', '', '', '＋ Arma, armadura ou escudo', 'add')}
         <span class="small muted">Armas também entram em Combate → Ataques.</span>
       </div>
     </div>
@@ -1193,6 +1588,31 @@ function renderInventory(s, d) {
 // Pré-requisitos dos talentos (regras 2024)
 const FEAT_REPEATABLE = new Set(['asi', 'skilled', 'mi-cleric', 'mi-druid', 'mi-wizard', 'elemental-adept']);
 const FEAT_PREREQ = { 'Origem': '', 'Estilo de Luta': 'Característica Estilo de Luta (Guerreiro 1, Paladino 2, Patrulheiro 2)', 'Geral': 'Nível 4+', 'Dádiva Épica': 'Nível 19+' };
+// Escolha do aumento de atributo de um talento (asi: +2 em um ou +1 em dois; demais: +1 num atributo permitido)
+function abChooserHtml(box, featId, ab, d) {
+  const R = FEAT_AB[featId]; if (!R) return '';
+  ab = ab || {};
+  const ks = Object.keys(ab).filter(k => +ab[k] > 0);
+  const mode = R.asi ? (ks.length === 2 || (ks.length === 1 && +ab[ks[0]] === 1) ? '11' : '2') : '1';
+  const [a1 = '', a2 = ''] = ks;
+  const optAb = (sel, other) => R.from.map(a => {
+    const full = d.scores[a] >= R.max && !ab[a];
+    return `<option value="${a}"${a === sel ? ' selected' : ''}${full || a === other ? ' disabled' : ''}>${AB[a].short} (${d.scores[a]})${full ? ' — no máximo' : ''}</option>`;
+  }).join('');
+  return `<span class="ab-choose" data-abbox="${box}">
+    ${R.asi ? `<select data-abk="mode">${opt('2', '+2 em um', mode)}${opt('11', '+1 em dois', mode)}</select>` : '<b>+1 em</b>'}
+    <select data-abk="a1"><option value="">atributo…</option>${optAb(a1, a2)}</select>
+    ${mode === '11' ? `<select data-abk="a2"><option value="">atributo…</option>${optAb(a2, a1)}</select>` : ''}</span>`;
+}
+function readAbChooser(box) {
+  const v = (k) => { const el = box.querySelector(`[data-abk="${k}"]`); return el ? el.value : ''; };
+  const mode = v('mode') || '1', a1 = v('a1'), a2 = v('a2');
+  if (!a1) return {};
+  if (mode === '2') return { [a1]: 2 };
+  if (mode === '11') return a2 && a2 !== a1 ? { [a1]: 1, [a2]: 1 } : { [a1]: 1 };
+  return { [a1]: 1 };
+}
+
 // Pré-requisito do talento (nível, característica, atributo, treinamento, conjuração). '' = atende.
 function featPrereqFail(f, d) {
   if (f.cat === 'Geral' && d.level < 4) return 'requer nível 4';
@@ -1222,27 +1642,12 @@ function featReqText(f) {
   if (r && r.caster) parts.push('Conjuração ou Magia de Pacto');
   return parts.join(' · ');
 }
-function featPreviewHtml(id, s, d) {
-  const f = FEAT[id];
-  if (!f) return `<p class="small muted">Nenhum talento disponível agora${d && d.nextFeatLevel ? ` — a próxima vaga de talento é no nível ${d.nextFeatLevel}` : ''}.</p>`;
-  const pre = featReqText(f);
-  const why = s && d ? featBlocked(f, s, d) : '';
-  return `<div class="fp-head"><b>${esc(f.name)}</b> <span class="badge">${esc(f.cat)}</span></div>
-    ${pre ? `<div class="small muted">Pré-requisito: ${esc(pre)}</div>` : ''}
-    ${why ? `<div class="small bad-text">Indisponível: ${esc(why)}</div>` : ''}
-    <p>${esc(f.desc)}</p>${FEAT_REPEATABLE.has(f.id) ? '<div class="small muted">Pode ser escolhido mais de uma vez.</div>' : ''}`;
-}
-function updateFeatPreview() {
-  const sel = $('#featNew'); if (!sel) return;
-  ui.featSel = sel.value;
-  const s = active(); $('#featPreview').innerHTML = featPreviewHtml(sel.value, s, s && compute(s));
-}
 
 // ---------------------------------------------------------------- Características
 function renderFeatures(s, d) {
   const groups = {};
   for (const f of d.features) {
-    if (f.lvl > d.level && !ui.showFuture) continue;
+    if (f.lvl > f.srcLevel && !ui.showFuture) continue;
     (groups[f.src] = groups[f.src] || []).push(f);
   }
   const featList = [];
@@ -1254,33 +1659,27 @@ function renderFeatures(s, d) {
   return `<div class="grid features">
     <div class="card wide">
       <div class="card-head"><h3>Características</h3><label class="chk-inline small"><input type="checkbox" data-action="toggleFuture" ${ui.showFuture ? 'checked' : ''}> Mostrar níveis futuros</label></div>
-      ${Object.entries(groups).map(([src, arr]) => `<div class="feat-group"><h4>${esc(src)}</h4>${arr.map(f => `<div class="feature${f.lvl > d.level ? ' future' : ''}"><div><b>${esc(f.name)}</b> <span class="badge">Nv ${f.lvl}</span></div>${f.desc ? `<p>${esc(f.desc)}</p>` : ''}</div>`).join('')}</div>`).join('') || '<p class="muted">Escolha espécie e classe na aba Construção.</p>'}
+      ${Object.entries(groups).map(([src, arr]) => `<div class="feat-group"><h4>${esc(src)}</h4>${arr.map(f => `<div class="feature${f.lvl > f.srcLevel ? ' future' : ''}"><div><b>${esc(f.name)}</b> <span class="badge">Nv ${f.lvl}</span></div>${f.desc ? `<p>${esc(f.desc)}</p>` : ''}</div>`).join('')}</div>`).join('') || '<p class="muted">Escolha espécie e classe na aba Construção.</p>'}
     </div>
     <div class="card">
       <h3>Talentos</h3>
       <div class="skill-counters">
-        ${counter('Talentos de nível', d.featUse.general, d.featSlots, d.nextFeatLevel ? `Próxima vaga no nível ${d.nextFeatLevel}` : 'Todas as vagas liberadas')}
+        ${counter('Vagas de talento', d.featUse.general, d.featSlots, d.nextFeatLevel ? `Próxima vaga no nível ${d.nextFeatLevel}` : 'Todas as vagas liberadas')}
         ${d.styleSlots || d.featUse.style ? counter('Estilo de Luta', d.featUse.style, d.styleSlots, 'Vagas de Estilo de Luta da classe') : ''}
       </div>
-      <p class="small muted">O talento do antecedente${s.species === 'human' ? ' e o do Humano (Versátil)' : ''} não ocupam vaga.${d.nextFeatLevel ? ` Próxima vaga de talento: nível ${d.nextFeatLevel}.` : ''}</p>
+      <p class="small muted">Vagas de talento vêm nos níveis 4, 8, 12, 16 e 19${d.classes.some(c => c.classId === 'fighter') ? ' (Guerreiro também 6 e 14)' : ''}${d.classes.some(c => c.classId === 'rogue') ? ' (Ladino também 10)' : ''}${d.multi ? ', contados pelo <b>nível em cada classe</b> (' + esc(classLine(s)) + ')' : ''}. ${d.featSlots ? '' : '<b>Ainda não há vaga.</b> '}${d.nextFeatLevel ? `Próxima vaga: nível de personagem ${d.nextFeatLevel}.` : ''} ${s.species === 'human' ? 'O talento do antecedente e o do Humano (Versátil) não ocupam vaga.' : 'O talento do antecedente não ocupa vaga.'}</p>
       ${featList.map(x => {
         const issue = x.raw && x.raw.featId && FEAT[x.raw.featId] ? featPrereqFail(FEAT[x.raw.featId], d) : '';
         return `<div class="feature"><div><b>${esc(x.f.name)}</b> ${x.src ? `<span class="badge">${esc(x.src)}</span>` : ''}${x.i != null ? ` <button class="icon-btn" data-action="delFeat" data-i="${x.i}" title="Remover">🗑</button>` : ''}</div>
         ${issue ? `<div class="small bad-text">⚠ Pré-requisito não atendido: ${esc(issue)}</div>` : ''}
+        ${x.raw && FEAT_AB[x.raw.featId] ? `<div class="ab-row small">Aumento de atributo: ${abChooserHtml(x.i, x.raw.featId, x.raw.ab, d)}
+          ${d.featAbPending.includes(x.i) ? '<span class="bad-text">⚠ escolha o atributo</span>' : ''}${x.raw.featId === 'resilient' && !d.featAbPending.includes(x.i) ? '<span class="ok">✓ salvaguarda aplicada</span>' : ''}</div>` : ''}
         ${x.custom ? `<textarea data-bind="feats.${x.i}.desc" rows="2" placeholder="Descrição">${esc(x.raw.desc || '')}</textarea>` : `<p>${esc(x.f.desc)}</p>`}</div>`;
       }).join('') || '<p class="muted small">Nenhum talento.</p>'}
       <div class="field"><span>Adicionar talento</span>
-        <div class="row gap wrap"><select id="featNew">${cats.map(c => `<optgroup label="${c}">${FEATS.filter(f => f.cat === c).map(f => {
-          const why = featBlocked(f, s, d);
-          return `<option value="${f.id}"${why ? ' disabled' : ''}${f.id === ui.featSel && !why ? ' selected' : ''}>${esc(f.name)}${why ? ` — ${why}` : ''}</option>`;
-        }).join('')}</optgroup>`).join('')}</select>
-        <input id="featNote" placeholder="Origem (ex: Nível 4)" class="w-dice"><button class="btn sm primary" data-action="addFeat">Adicionar</button></div>
-        <div id="featPreview" class="feat-preview">${(() => {
-          const first = FEATS.find(f => !featBlocked(f, s, d));
-          return featPreviewHtml(ui.featSel && FEAT[ui.featSel] && !featBlocked(FEAT[ui.featSel], s, d) ? ui.featSel : first && first.id, s, d);
-        })()}</div>
+        ${pickBtn('feat', '', '', '＋ Adicionar talento', 'add')}
         <div class="row gap wrap"><input id="featCustom" placeholder="Talento personalizado"><button class="btn sm" data-action="addCustomFeat">Adicionar personalizado</button></div>
-        <p class="small muted">Lembre-se de aplicar aumentos de atributo dos talentos em "Extra" na aba Construção.</p>
+        <p class="small muted">Talentos que aumentam atributo pedem a escolha do atributo e somam sozinhos (coluna Talentos, na Construção).</p>
       </div>
     </div>
   </div>`;
@@ -1396,6 +1795,14 @@ const actions = {
     save();
   },
   toggleLibrary() { ui.library = !ui.library; },
+  pendToggle(el, ev, s) { ui.pendOpen = ui.pendOpen === s.id ? null : s.id; },
+  openPicker(el, ev, s) { ui.picker = { type: el.dataset.type, arg: el.dataset.arg || '', sheet: s.id, q: '', justOpened: true }; },
+  pickerClose() { ui.picker = null; },
+  pickerSelect(el, ev, s, d) {
+    const p = ui.picker; if (!p) return false;
+    PICKERS[p.type](s, d, p.arg).pick(s, el.dataset.value, d);
+    ui.picker = null; touch(s);
+  },
   togglePreview() { ui.preview = !ui.preview; window.scrollTo(0, 0); },
   printSheet() { window.print(); return false; },
   libToggle(el) {
@@ -1441,8 +1848,41 @@ const actions = {
   photoRemove(el, ev, s) { s.photo = ''; ui.photoView = false; touch(s); toast('Foto removida.'); },
   closePhoto() { ui.photoView = false; },
   rollMode(el) { ui.rollMode = el.dataset.mode; save(); },
-  levelUp(el, ev, s) { s.level = Math.min(20, s.level + 1); touch(s); toast(`Nível ${s.level}! Confira novas características e PV.`, 'good'); },
+  levelUp(el, ev, s, d) {
+    if (d.level >= 20) { toast('Nível 20 é o máximo.'); return false; }
+    ui.lv = { sheet: s.id, choice: '', subclass: '', feat: '', style: '' };
+  },
+  lvChoice(el) { Object.assign(ui.lv, { choice: el.dataset.choice, subclass: '', feat: '', style: '' }); },
+  lvClose() { ui.lv = null; },
+  lvConfirm(el, ev, s, d) {
+    const lv = ui.lv; if (!lv || !lv.choice) return false;
+    const n = lvApply(s, lv, true); const d1 = compute(n);
+    if (n.hp.current != null) n.hp.current = Math.min(d1.hpMax, +n.hp.current + (d1.hpMax - d.hpMax));
+    n.updatedAt = Date.now();
+    Object.keys(s).forEach(k => delete s[k]); Object.assign(s, n);   // mesmo objeto, mesma aba
+    const pend = lv.pending || [];
+    ui.lv = null; save();
+    toast(`Nível ${d1.level}! ${esc(classLine(s))}.${pend.length ? `<br><small>Pendente: ${pend.map(esc).join(' · ')}</small>` : ''}`, 'good', pend.length ? 9000 : 4500);
+  },
 
+  delClass(el, ev, s) {
+    const i = +el.dataset.i; const m = s.multiclass[i]; if (!m) return false;
+    const name = CLASS[m.classId] ? CLASS[m.classId].name : 'classe';
+    const nSpells = s.spells.filter(x => x.classId === m.classId && spellSource(x) === 'class').length;
+    if (!confirm(`Remover ${name} (nível ${m.level}) da ficha? Esses níveis voltam para ${CLASS[s.classId].name}.${nSpells ? `\n${nSpells} magia(s) dessa classe também serão removidas.` : ''}`)) return false;
+    s.spells = s.spells.filter(x => !(x.classId === m.classId && spellSource(x) === 'class'));
+    s.level = (+s.level || 1) + Math.max(1, +m.level || 1);   // os níveis voltam para a classe inicial
+    s.multiclass.splice(i, 1); s.hitDiceUsedBy = {};
+    touch(s);
+  },
+  mcSkill(el, ev, s, d) {
+    const m = s.multiclass[+el.dataset.i]; if (!m) return false;
+    const id = el.dataset.id; m.classSkills = m.classSkills || [];
+    const pick = d.mcPicks.find(p => p.idx === +el.dataset.i);
+    if (m.classSkills.includes(id)) m.classSkills = m.classSkills.filter(k => k !== id);
+    else if (pick && m.classSkills.length < pick.count) m.classSkills.push(id);
+    touch(s);
+  },
   classSkill(el, ev, s) {
     const id = el.dataset.id; const set = new Set(s.classSkills);
     set.has(id) ? set.delete(id) : set.add(id);
@@ -1453,8 +1893,15 @@ const actions = {
   skillCycle(el, ev, s, d) {
     const id = el.dataset.id; const x = d.skills[id];
     const inClass = s.classSkills.includes(id);
-    const locked = x.sources.some(src => src !== 'Classe'); // antecedente, espécie, subclasse
-    const unpick = () => { s.skillProf[id] = 0; if (inClass && !locked) s.classSkills = s.classSkills.filter(k => k !== id); };
+    const mcOwner = (s.multiclass || []).find(m => (m.classSkills || []).includes(id));
+    const locked = x.sources.some(src => src !== 'Classe' && src !== 'Multiclasse'); // antecedente, espécie, subclasse
+    const unpick = () => {
+      s.skillProf[id] = 0;
+      if (locked) return;
+      if (inClass) s.classSkills = s.classSkills.filter(k => k !== id);
+      if (mcOwner) mcOwner.classSkills = mcOwner.classSkills.filter(k => k !== id);
+    };
+    const mcPick = d.mcPicks.find(p => p.used < p.count && p.list.includes(id));
     if (x.prof === 2) unpick();
     else if (x.prof === 1) {
       if (d.expertiseUsed < d.expertiseMax) s.skillProf[id] = 2;
@@ -1462,6 +1909,8 @@ const actions = {
       else unpick();
     } else if (d.classSkillList.includes(id) && s.classSkills.length < d.classSkillMax) {
       s.classSkills.push(id);
+    } else if (mcPick) {
+      const m = s.multiclass[mcPick.idx]; m.classSkills = (m.classSkills || []).concat([id]);
     } else if (d.profExtraUsed < d.profExtraMax) {
       s.skillProf[id] = 1;
     } else {
@@ -1488,11 +1937,14 @@ const actions = {
   rollSave(el, ev, s, d) { rollD20(`Salvaguarda de ${AB[el.dataset.ab].name}`, d.saves[el.dataset.ab].bonus); return false; },
   rollSkill(el, ev, s, d) { rollD20(SK[el.dataset.id].name, d.skills[el.dataset.id].bonus); return false; },
   rollInit(el, ev, s, d) { rollD20('Iniciativa', d.init, d.initAdv && ui.rollMode === 'normal' ? { mode: 'adv' } : {}); return false; },
-  rollSpellAtk(el, ev, s, d) { rollD20('Ataque mágico', d.spell.attack); return false; },
+  rollSpellAtk(el, ev, s, d) {
+    const c = el.dataset.cls && casterFor(d, el.dataset.cls);
+    rollD20(c && d.casters.length > 1 ? `Ataque mágico (${c.name})` : 'Ataque mágico', c ? c.attack : d.spell.attack); return false;
+  },
   rollAttack(el, ev, s, d) {
     const atk = s.attacks[+el.dataset.i]; const c = attackCalc(d, s, atk);
     const r = rollD20(`Ataque: ${atk.name || (c.w ? c.w.name : 'Ataque')}`, c.hit);
-    const critMin = d.subId === 'champion' ? (d.level >= 15 ? 18 : 19) : 20;
+    const critMin = d.subs.has('champion') ? (d.lvlOf('fighter') >= 15 ? 18 : 19) : 20;
     if (r.nat >= critMin && r.nat < 20) toast('Acerto crítico (Campeão)!', 'good');
     return false;
   },
@@ -1520,10 +1972,13 @@ const actions = {
   hpHeal(el, ev, s, d) { const v = +$('#hpAmt').value; if (!v) return false; healOrDamage(s, d, 'heal', v); touch(s); },
   hpTemp(el, ev, s, d) { const v = +$('#hpAmt').value; if (!v) return false; healOrDamage(s, d, 'temp', v); touch(s); },
   spendHD(el, ev, s, d) {
-    if (s.hitDiceUsed >= d.level) return false;
-    const r = rollDie(d.hd); const heal = Math.max(0, r + d.mods.con);
-    s.hitDiceUsed++; healOrDamage(s, d, 'heal', heal);
-    toast(`<div class="t-label">Dado de Vida</div><div class="t-line">d${d.hd}: ${r} ${fmt(d.mods.con)} = <b class="t-total">${heal}</b> PV</div>`, 'roll good');
+    const hs = hdState(s, d);
+    const h = hs.find(x => x.die === +el.dataset.die) || hs.find(x => x.used < x.count);
+    if (!h || h.used >= h.count) return false;
+    const r = rollDie(h.die); const heal = Math.max(0, r + d.mods.con);
+    if (hs.length > 1) { s.hitDiceUsedBy = Object.assign({}, s.hitDiceUsedBy); s.hitDiceUsedBy[h.die] = (+s.hitDiceUsedBy[h.die] || 0) + 1; }
+    s.hitDiceUsed = (+s.hitDiceUsed || 0) + 1; healOrDamage(s, d, 'heal', heal);
+    toast(`<div class="t-label">Dado de Vida</div><div class="t-line">d${h.die}: ${r} ${fmt(d.mods.con)} = <b class="t-total">${heal}</b> PV</div>`, 'roll good');
     touch(s);
   },
 
@@ -1562,7 +2017,7 @@ const actions = {
     touch(s);
   },
   longRest(el, ev, s, d) {
-    s.hp.current = d.hpMax; s.hp.temp = 0; s.hitDiceUsed = 0; s.resUsed = {};
+    s.hp.current = d.hpMax; s.hp.temp = 0; s.hitDiceUsed = 0; s.hitDiceUsedBy = {}; s.resUsed = {};
     s.slotsUsed = [0, 0, 0, 0, 0, 0, 0, 0, 0, 0]; s.pactUsed = 0; s.deathSaves = { s: 0, f: 0 };
     if (s.exhaustion > 0) s.exhaustion--;
     if (s.species === 'human') s.inspiration = true;
@@ -1570,15 +2025,6 @@ const actions = {
     touch(s);
   },
 
-  addWeapon(el, ev, s) {
-    const id = $('#weaponNew').value;
-    if (!id) { $('#weaponNew').focus(); toast('Escolha uma arma na lista.'); return false; }
-    const before = s.attacks.length;
-    addWeaponTo(s, id);
-    if (s.attacks.length === before) s.attacks.push({ id: uid(), weaponId: id }); // permite uma segunda cópia (ex.: duas adagas)
-    toast(`${WEAPON[id].name} adicionada aos ataques e ao inventário.`, 'good');
-    touch(s);
-  },
   addUnarmed(el, ev, s) { s.attacks.push({ id: uid(), weaponId: 'unarmed', name: 'Ataque Desarmado' }); touch(s); },
   addCustomAttack(el, ev, s) { s.attacks.push({ id: uid(), name: 'Novo ataque', dmg: '1d6', dtype: '' }); touch(s); },
   delAttack(el, ev, s) { s.attacks.splice(+el.dataset.i, 1); touch(s); },
@@ -1586,16 +2032,17 @@ const actions = {
   spellDetail(el) { ui.spellDetail = ui.spellDetail === el.dataset.id ? null : el.dataset.id; },
   pickSpell(el, ev, s, d) {
     const sp = SPELL[el.dataset.id]; if (!sp) return false;
-    const st = pickerState(s, d);
-    const idx = s.spells.findIndex(x => x.cat === sp.id && spellSource(x) === 'class');
+    const c = casterFor(d, el.dataset.cls || s.classId); if (!c) return false;
+    const st = pickerState(s, d, c);
+    const idx = s.spells.findIndex(x => x.cat === sp.id && spellSource(x) === 'class' && spellClassOf(x, s) === c.classId);
     const on = sp.level === 0 ? st.cantripIds.has(sp.id) : st.spellIds.has(sp.id);
     if (on) { s.spells.splice(idx, 1); touch(s); return; }
-    if (sp.level > 0 && st.spellIds.size >= st.spellMax) { toast(`Limite de ${st.spellMax} atingido. Desmarque outra antes.`, 'bad'); return; }
+    if (sp.level > 0 && st.spellIds.size >= st.spellMax) { toast(`Limite de ${st.spellMax} atingido para ${c.name}. Desmarque outra antes.`, 'bad'); return; }
     if (idx >= 0) s.spells[idx].prepared = true; // já estava na ficha sem preparar
     else {
-      const why = classSpellBlock(sp, s, d);
+      const why = classSpellBlock(sp, s, d, c);
       if (why) { toast(why, 'bad'); return; }
-      s.spells.push({ id: uid(), cat: sp.id, source: 'class', prepared: sp.level === 0 || !st.wizard, name: sp.name, level: sp.level, school: sp.school, time: sp.time, range: sp.range, dur: sp.dur, conc: sp.conc, ritual: sp.ritual, notes: sp.sum });
+      s.spells.push({ id: uid(), cat: sp.id, source: 'class', classId: c.classId, prepared: sp.level === 0 || !st.wizard, name: sp.name, level: sp.level, school: sp.school, time: sp.time, range: sp.range, dur: sp.dur, conc: sp.conc, ritual: sp.ritual, notes: sp.sum });
     }
     touch(s);
   },
@@ -1622,16 +2069,6 @@ const actions = {
     const name = $('#itemName').value.trim(); if (!name) { $('#itemName').focus(); return false; }
     s.inventory.push({ id: uid(), name, qty: Math.max(1, +$('#itemQty').value || 1), weight: GEAR_W[name] ?? 0, equipped: false, notes: '' }); touch(s);
   },
-  addGearItem(el, ev, s) {
-    const val = $('#gearNew').value;
-    if (!val) { $('#gearNew').focus(); toast('Escolha um equipamento na lista.'); return false; }
-    if (!val.startsWith('a:')) { addWeaponTo(s, val); toast(`${WEAPON[val].name} adicionada ao inventário e aos ataques.`, 'good'); touch(s); return; }
-    const id = val.slice(2);
-    if (id === 'shield') s.inventory.push({ id: uid(), name: 'Escudo', qty: 1, weight: 6, equipped: false, notes: '+2 CA' });
-    else { const a = ARMOR[id]; s.inventory.push({ id: uid(), name: a.name, qty: 1, weight: a.weight, equipped: false, notes: `Armadura ${ARMOR_TYPE_NAME[a.type]}, CA ${a.base}` }); }
-    toast('Armadura adicionada. Para vesti-la, escolha-a em Combate → Defesa.');
-    touch(s);
-  },
   delItem(el, ev, s) { s.inventory.splice(+el.dataset.i, 1); touch(s); },
   coinOp(el, ev, s) {
     const amt = Math.floor(+$('#coinAmt').value || 0); const type = $('#coinType').value;
@@ -1641,10 +2078,6 @@ const actions = {
     touch(s);
   },
 
-  addFeat(el, ev, s, d) {
-    const f = FEAT[$('#featNew').value]; const why = f && featBlocked(f, s, d);
-    if (!f || why) { toast(`Não é possível adicionar: ${why}.`, 'bad'); return false; }
-    s.feats.push({ id: uid(), featId: $('#featNew').value, note: $('#featNote').value.trim() }); touch(s); },
   addCustomFeat(el, ev, s) {
     const name = $('#featCustom').value.trim(); if (!name) return false;
     s.feats.push({ id: uid(), name, desc: '' }); touch(s);
@@ -1698,6 +2131,8 @@ const actions = {
 const onChange = {
   classId(s) {
     s.subclass = ''; s.classSkills = []; s.classChoices = {}; s.spellAbility = '';
+    if (!s.classId && (s.multiclass || []).length) { s.multiclass = []; toast('Sem classe inicial, as classes de multiclasse foram removidas.'); }
+    if ((s.multiclass || []).some(m => m.classId === s.classId)) { s.multiclass = s.multiclass.filter(m => m.classId !== s.classId); toast('Essa classe estava na multiclasse e virou a classe inicial.'); }
     const c = CLASS[s.classId];
     if (c) toast(`Classe: ${c.name}. Escolha ${c.skillCount} perícias e o equipamento inicial.`);
   },
@@ -1741,13 +2176,14 @@ document.addEventListener('input', (ev) => {
   const s = active();
   if (!s) return;
   if (el.id === 'spellSearch') { ui.spellFilter.q = el.value; refreshCatalog(); return; }
-  if (el.id === 'pickerFilter') {
+  if (el.id === 'pickerSearch') { if (ui.picker) ui.picker.q = el.value; filterPicker(el.value); return; }
+  if (el.classList.contains('picker-filter')) {
     ui.pickerQ = el.value;
     const q = el.value.trim().toLowerCase().normalize('NFD').replace(/[\u0300-\u036f]/g, '');
+    document.querySelectorAll('.picker-filter').forEach(x => { if (x !== el) x.value = el.value; });
     document.querySelectorAll('.picker .spell-chip').forEach(c => { c.hidden = !!q && !c.dataset.search.includes(q); });
     return;
   }
-  if (el.id === 'featNew') { updateFeatPreview(); return; }
   if (el.dataset.bind && el.type !== 'checkbox' && el.type !== 'radio' && el.tagName !== 'SELECT') {
     setPath(s, el.dataset.bind, bindValue(el));
     s.updatedAt = Date.now(); save();
@@ -1763,6 +2199,21 @@ document.addEventListener('change', (ev) => {
   const el = ev.target;
   const s = active();
   if (!s) return;
+  const abBox = el.closest && el.closest('[data-abbox]');
+  if (abBox) {
+    const ab = readAbChooser(abBox);
+    if (abBox.dataset.abbox === 'lv') { if (ui.lv) ui.lv.ab = ab; }
+    else { const f = s.feats[+abBox.dataset.abbox]; if (f) { f.ab = ab; touch(s); } }
+    scheduleRender(); return;
+  }
+  if (el.dataset.lv && ui.lv) {             // escolhas dentro do modal de subir de nível
+    if (el.dataset.lv === 'choice') { if (!el.value) return; Object.assign(ui.lv, { choice: el.value, subclass: '', feat: '', style: '' }); }
+    else { ui.lv[el.dataset.lv] = el.value; if (el.dataset.lv === 'feat') ui.lv.ab = {}; }
+    scheduleRender(); return;
+  }
+  if (el.dataset.total != null) {           // nível de personagem: a classe inicial absorve a diferença
+    s.level = Math.max(1, +el.value - mcLevels(s)); onChange.level(s); touch(s); scheduleRender(); return;
+  }
   if (el.dataset.bind && el.dataset.bind.startsWith('mastery.') && el.checked) {
     const d = compute(s);
     if (d.masteryUsed >= d.masteryMax) { el.checked = false; toast(`Limite de ${d.masteryMax} maestrias no nível ${d.level}.`, 'bad'); return; }
@@ -1770,10 +2221,11 @@ document.addEventListener('change', (ev) => {
   if (el.dataset.prep != null) {
     const sp = s.spells[+el.dataset.prep]; const d = compute(s);
     if (el.checked) {
-      const c = spellCounts(s);
+      const own = casterFor(d, spellClassOf(sp, s));
       let why = '';
-      if (+sp.level > maxSpellLevel(d)) why = `No nível ${d.level} você só prepara magias até o ${maxSpellLevel(d)}º nível.`;
-      else if (c.prepared >= d.prepared) why = `Você já tem ${d.prepared} magias preparadas (limite do nível ${d.level}). Desmarque outra antes.`;
+      if (!own) why = 'A classe desta magia não está na ficha. Mude a origem em "editar".';
+      else if (+sp.level > own.maxLevel) why = `${own.name} nível ${own.level} só prepara magias até o ${own.maxLevel}º nível.`;
+      else if (spellCounts(s, own.classId).prepared >= own.prepared) why = `${own.name} já tem ${own.prepared} magias preparadas (limite do nível ${own.level}). Desmarque outra antes.`;
       if (why) { el.checked = false; toast(why, 'bad', 6000); return; }
     }
     sp.prepared = el.checked; touch(s); scheduleRender(); return;
@@ -1783,7 +2235,11 @@ document.addEventListener('change', (ev) => {
     if (el.value === 'class' && spellSource(sp) !== 'class') {
       const cat = sp.cat && SPELL[sp.cat];
       const others = Object.assign({}, s, { spells: s.spells.filter(x => x !== sp) });
-      const why = cat ? classSpellBlock(cat, others, d) : (+sp.level === 0 && spellCounts(others).cantrips >= d.cantrips ? `Você já tem os ${d.cantrips} truques permitidos.` : '');
+      // escolhe a classe: a já indicada na magia, senão a primeira conjuradora cuja lista tenha a magia
+      const c = casterFor(d, sp.classId) || (cat && d.casters.find(x => cat.classes.some(l => allowedListsFor(x).includes(l)))) || d.casters[0];
+      const why = !c ? classSpellBlock(cat || sp, others, d, null) : cat ? classSpellBlock(cat, others, d, c)
+        : (+sp.level === 0 && spellCounts(others, c.classId).cantrips >= c.cantrips ? `${c.name} já tem os ${c.cantrips} truques permitidos.` : '');
+      if (!why && c) sp.classId = c.classId;
       if (why) { el.value = spellSource(sp); toast(why, 'bad', 6000); return; }
       sp.prepared = false;
     }
@@ -1800,7 +2256,6 @@ document.addEventListener('change', (ev) => {
     if (el.id === 'catSource') f.source = el.value;
     refreshCatalog(); return;
   }
-  if (el.id === 'featNew') { updateFeatPreview(); return; }
   if (el.dataset.std) {
     const ab = el.dataset.std, v = +el.value, old = +s.abilities[ab];
     const other = ABILITIES.find(a => a.id !== ab && +s.abilities[a.id] === v);
@@ -1827,7 +2282,9 @@ document.addEventListener('keydown', (ev) => {
 document.addEventListener('keydown', (ev) => {
   if ((ev.key === 'Enter' || ev.key === ' ') && ev.target.dataset && ev.target.dataset.action === 'photoPick') { ev.preventDefault(); ev.target.click(); return; }
   if (ev.key !== 'Escape') return;
+  if (ui.picker) { ui.picker = null; render(); return; }
   if (ui.photoView) { ui.photoView = false; render(); return; }
+  if (ui.lv) { ui.lv = null; render(); return; }
   if (ui.library) { ui.library = false; render(); }
   else if (ui.preview && !/INPUT|TEXTAREA|SELECT/.test(document.activeElement.tagName)) { ui.preview = false; render(); }
 });

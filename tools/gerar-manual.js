@@ -6,7 +6,7 @@ const root = path.join(__dirname, '..');
 const ctx = { console, Math, Date, JSON, Object, Array, String, Number, Set };
 vm.createContext(ctx);
 for (const f of ['js/data.js', 'js/spells.js', 'js/rules.js']) vm.runInContext(fs.readFileSync(path.join(root, f), 'utf8'), ctx);
-const D = vm.runInContext(`({ FEAT_REQ, ABILITIES, SKILLS, SK, AB, ALIGNMENTS, LANGUAGES, CONDITIONS, SPECIES, BACKGROUNDS, CLASSES, FEATS, FEAT,
+const D = vm.runInContext(`({ FEAT_AB, MULTICLASS, FEAT_REQ, ABILITIES, SKILLS, SK, AB, ALIGNMENTS, LANGUAGES, CONDITIONS, SPECIES, BACKGROUNDS, CLASSES, FEATS, FEAT,
   WEAPONS, ARMORS, ARMOR_TYPE_NAME, SPELLS, COINS, FULL_SLOTS, PREP_THIRD, XP_TABLE, POINT_BUY_COST, STANDARD_ARRAY, SPELL_SCHOOLS, newSheet, steps })`, ctx);
 // Itens comuns (lista de sugestões do app, com peso em libras)
 const appSrc = fs.readFileSync(path.join(root, 'js/app.js'), 'utf8');
@@ -51,7 +51,7 @@ out('## 3. Campos da ficha', '',
   '| `name` | texto | Nome do personagem. |',
   '| `player` | texto | Nome do jogador. |',
   '| `photo` | texto | Deixe `""` (a foto é adicionada no app). |',
-  '| `level` | número | 1 a 20. |',
+  '| `level` | número | Nível na classe **inicial** (1 a 20). Com multiclasse, o nível de personagem é a soma de `level` com os níveis em `multiclass` (máx. 20). |',
   `| ${code('xp')} | número | Pontos de experiência. Mínimo por nível: ${D.XP_TABLE.map((x, i) => `${i + 1}→${x}`).join(', ')}. |`,
   `| ${code('alignment')} | texto | Um destes ou \`""\`: ${D.ALIGNMENTS.map(code).join(', ')}. |`,
   '| `species` | código | Ver seção 4. |',
@@ -60,19 +60,20 @@ out('## 3. Campos da ficha', '',
   '| `background` | código | Ver seção 5. |',
   '| `bgMode` | texto | `"21"` = +2 num atributo e +1 em outro; `"111"` = +1 nos três atributos do antecedente. |',
   '| `bg2`, `bg1` | código de atributo | Com `bgMode: "21"`: qual recebe +2 e qual recebe +1 (diferentes, e entre os 3 do antecedente). |',
-  '| `classId` | código | Ver seção 6. |',
+  '| `classId` | código | Classe **inicial** (a do 1º nível). Ver seção 6. |',
   '| `subclass` | código | Subclasse (a partir do nível 3), ou `""`. |',
   '| `classChoices` | objeto | Escolhas da classe (Clérigo e Druida têm `order`). Ex.: `{ "order": "protector" }`. |',
   '| `classSkills` | lista de códigos | Perícias escolhidas da lista da classe (quantidade exata da classe). Não repita as do antecedente. |',
+  '| `multiclass` | lista | Classes **além** da inicial (seção 6.1). Deixe `[]` para personagem de uma classe só. Cada item: `{ "classId", "level", "subclass", "classChoices", "classSkills" }`. |',
   '| `abilityMethod` | texto | `"pointbuy"`, `"standard"` ou `"manual"` (rolagem). |',
   '| `abilities` | objeto | Valores **base** (antes do antecedente): `{ "str", "dex", "con", "int", "wis", "cha" }`. |',
-  '| `abilityExtra` | objeto | Bônus extras por atributo (Aumentos de Atributo, talentos, itens). Mesmo formato. |',
+  '| `abilityExtra` | objeto | Bônus extras por atributo vindos de **itens ou do mestre**. Mesmo formato. **Não** coloque aqui aumentos de talento (eles vão em `feats[].ab`). |',
   '| `saveProf` | objeto | Proficiências de salvaguarda **além** das da classe. Ex.: `{ "wis": true }` (talento Resiliente). |',
   '| `saveBonus` | número | Bônus em todas as salvaguardas (itens mágicos). Normalmente `0`. |',
   '| `skillProf` | objeto | Perícia → `1` (proficiente, vinda de talento/outra fonte) ou `2` (especialização). Ex.: `{ "stealth": 2 }`. |',
   '| `extraSkills`, `extraExpertise` | número | Proficiências/especializações extras dadas pelo mestre. Normalmente `0`. |',
   '| `hp` | objeto | `{ "current": null, "temp": 0, "maxOverride": null, "bonus": 0 }`. **Use `null` em `current`** (= PV cheios). `maxOverride` só se a mesa usar PV rolados. |',
-  '| `hitDiceUsed` | número | Dados de vida gastos. Normalmente `0`. |',
+  '| `hitDiceUsed` | número | Dados de vida gastos. Normalmente `0`. (Com multiclasse o app também usa `hitDiceUsedBy`, opcional.) |',
   '| `deathSaves` | objeto | `{ "s": 0, "f": 0 }`. |',
   '| `exhaustion` | número | 0 a 6. |',
   '| `inspiration` | sim/não | Inspiração Heroica. |',
@@ -106,7 +107,7 @@ out('### Como montar os atributos', '',
   `- **Arranjo padrão** (\`"standard"\`): distribua ${D.STANDARD_ARRAY.join(', ')}, um valor por atributo.`,
   '- **Rolagem** (`"manual"`): valores base de 3 a 18.',
   '- O antecedente soma +2/+1 ou +1/+1/+1 em cima da base (campos `bgMode`, `bg2`, `bg1`).',
-  '- Aumentos de Atributo de nível (4, 8, 12, 16, 19 — Guerreiro também 6 e 14, Ladino também 10) vão em `abilityExtra` e devem ter um talento `asi` correspondente em `feats`.',
+  '- Aumentos de Atributo de nível (4, 8, 12, 16, 19 — Guerreiro também 6 e 14, Ladino também 10) são talentos `asi` em `feats`, com a escolha em `ab` (seção 7). O app soma sozinho; **não** repita em `abilityExtra`.',
   '- Nenhum atributo final passa de 20 (exceto Dádivas Épicas e as capstones de nível 20 de Bárbaro e Monge, que o app soma sozinho).', '');
 
 // Espécies
@@ -152,9 +153,33 @@ for (const [name, type, can, prep] of casters) {
 }
 out('', 'Formato de cada célula: **truques / magias preparadas / nível máximo**. O Mago pode ter mais magias no grimório (6 no nível 1 + 2 por nível), mas só marca como `prepared` a quantidade da tabela.', '');
 
+// Multiclasse
+const TRAIN = { light: 'armadura leve', medium: 'armadura média', heavy: 'armadura pesada', shield: 'escudos', martial: 'armas marciais' };
+out('### 6.1 Multiclasse', '',
+  'A classe inicial (do 1º nível) fica em `classId`/`level`/`subclass`/`classChoices`/`classSkills`; as outras vão em `multiclass`:',
+  '```json', '"multiclass": [ { "classId": "wizard", "level": 3, "subclass": "evoker", "classChoices": {}, "classSkills": [] } ]', '```',
+  '- **Pré-requisito:** 13 no atributo principal da nova classe **e** no de cada classe que o personagem já tem (tabela abaixo). O app trava a multiclasse sem isso.',
+  '- **Nível de personagem** = soma dos níveis (máx. 20). Ele define o bônus de proficiência; recursos, características, magias e vagas de talento contam pelo nível **em cada classe**.',
+  '- **Não repita** a classe inicial nem a mesma classe duas vezes em `multiclass`. Subclasse só a partir do nível 3 **naquela classe**.',
+  '- **PV:** dado máximo da classe inicial no 1º nível; nos demais níveis, a média do dado de cada classe (o app calcula).',
+  '- **Salvaguardas:** só as da classe inicial. As demais classes dão só as proficiências da tabela abaixo; `classSkills` de uma multiclasse só existe para Bardo, Patrulheiro e Ladino (quantidade indicada).',
+  '- **Magias:** cada classe conjuradora tem atributo, CD, truques, preparadas, lista e nível máximo próprios — use os limites da seção 6 pelo nível **daquela classe**. Em cada magia de origem `"class"`, informe a classe em `classId` (ex.: `"classId": "wizard"`). Sem `classId`, a magia conta para a classe inicial.',
+  '- **Espaços de magia** com duas ou mais classes conjuradoras: tabela de multiclasse (nível de conjurador = níveis de Bardo, Clérigo, Druida, Feiticeiro e Mago + metade, arredondada para cima, de Paladino e Patrulheiro + um terço, arredondado para baixo, de Cavaleiro Arcano e Trapaceiro Arcano). Espaços de Pacto do Bruxo ficam separados. O app calcula.', '',
+  '| Classe | Pré-requisito | Proficiências ao entrar por multiclasse |', '|---|---|---|',
+  ...D.CLASSES.map(c => {
+    const m = D.MULTICLASS[c.id] || {};
+    const req = m.req ? (m.req.all || m.req.any).map(a => D.AB[a].short).join(m.req.all ? ' e ' : ' ou ') + ' 13' : '—';
+    const gains = [...(m.armor || []), ...(m.weapons || [])].map(x => TRAIN[x]);
+    if (m.skills) gains.push(`${m.skills} perícia ${m.skillList === 'any' ? 'qualquer' : 'da lista da classe'} (\`classSkills\`)`);
+    if (m.tools) gains.push(m.tools);
+    return `| ${code(c.id)} ${c.name} | ${req} | ${gains.join(', ') || 'nenhuma (só o Dado de Vida)'} |`;
+  }), '');
+
 // Talentos
 out('## 7. Talentos (`feats`)', '',
-  'Formato de cada item: `{ "id": "", "featId": "alert", "note": "Nível 4", "name": "", "desc": "" }`.',
+  'Formato de cada item: `{ "id": "", "featId": "alert", "note": "Nível 4", "ab": {}, "name": "", "desc": "" }`.',
+  '- `ab`: o aumento de atributo do talento, aplicado automaticamente (até 20; 30 nas Dádivas Épicas). Aumento no Valor de Atributo (`asi`): `{ "str": 2 }` (+2 em um) ou `{ "str": 1, "con": 1 }` (+1 em dois). Talentos gerais e Dádivas: +1 em **um** dos atributos permitidos (coluna "Aumento" abaixo), ex.: `{ "dex": 1 }`. Talentos de Origem e Estilos de Luta não têm aumento: use `{}`.',
+  '- Resiliente (`resilient`): o atributo escolhido em `ab` também ganha proficiência em salvaguarda automaticamente.',
   '- `featId`: um código da tabela abaixo. `note`: de onde veio (ex.: "Nível 4").',
   '- Talento inventado/homebrew: deixe `featId` vazio e preencha `name` e `desc`.',
   '- O talento do antecedente e o do Humano (`speciesChoices.versatile`) **não** entram aqui e não ocupam vaga.',
@@ -162,12 +187,14 @@ out('## 7. Talentos (`feats`)', '',
   '- **Vagas de Estilo de Luta**: Guerreiro 1 (Campeão nível 7+: 2); Paladino e Patrulheiro 1 a partir do nível 2; demais classes 0.',
   '- Não repita talentos, exceto `asi`, `skilled`, `mi-cleric`, `mi-druid`, `mi-wizard` e `elemental-adept`.',
   '- O app trava talentos sem vaga ou sem pré-requisito e mostra aviso nos que já estiverem na ficha fora da regra.', '',
-  '| Código | Nome | Categoria | Pré-requisito | Efeito |', '|---|---|---|---|---|',
+  '| Código | Nome | Categoria | Pré-requisito | Aumento (`ab`) | Efeito |', '|---|---|---|---|---|---|',
   ...D.FEATS.map(f => {
     const base = { 'Origem': '—', 'Geral': 'Nível 4+', 'Estilo de Luta': 'Estilo de Luta (classe)', 'Dádiva Épica': 'Nível 19+' }[f.cat];
     const r = D.FEAT_REQ[f.id] || {};
     const extra = [r.ab && r.ab.map(a => D.AB[a].short).join(' ou ') + ' 13+', r.train && 'treinamento em ' + (r.train === 'shield' ? 'escudos' : 'armadura ' + D.ARMOR_TYPE_NAME[r.train].toLowerCase()), r.caster && 'Conjuração ou Magia de Pacto'].filter(Boolean);
-    return `| ${code(f.id)} | ${f.name} | ${f.cat} | ${[base].concat(extra).join('; ')} | ${f.desc.replace(/\|/g, '/')} |`;
+    const A = D.FEAT_AB[f.id];
+    const inc = !A ? '—' : A.asi ? '+2 em um ou +1 em dois (qualquer)' : '+1 em ' + (A.from.length === 6 ? 'qualquer' : A.from.map(a => D.AB[a].short).join(' ou ')) + (A.max === 30 ? ' (até 30)' : '');
+    return `| ${code(f.id)} | ${f.name} | ${f.cat} | ${[base].concat(extra).join('; ')} | ${inc} | ${f.desc.replace(/\|/g, '/')} |`;
   }), '');
 
 // Equipamento
@@ -205,6 +232,7 @@ out('## 10. Magias (`spells`)', '',
   '  - `"extra"` — de espécie, talento ou item (ex.: Luz do Aasimar, Iniciado em Magia). Não conta nos limites.',
   '- `prepared`: truques sempre `true`; para `"class"`, marque `true` só até o limite; `"always"` e `"extra"` usam `true`.',
   '- `level`: 0 = truque. Não escolha magias acima do nível máximo da classe.',
+  '- `classId`: classe dona da magia (só importa com multiclasse; padrão = classe inicial).',
   '- Listas: Cavaleiro Arcano e Trapaceiro Arcano usam a lista de Mago. Bardo a partir do nível 10 pode escolher também das listas de Clérigo, Druida e Mago.', '',
   `### Catálogo (${D.SPELLS.length} magias do SRD 5.2)`, '');
 for (let lv = 0; lv <= 9; lv++) {
@@ -222,9 +250,10 @@ out('## 11. Checklist antes de importar', '',
   '- [ ] Truques e magias preparadas `"class"` dentro da tabela; nenhuma magia acima do nível máximo.',
   '- [ ] `hp.current` é `null`.',
   '- [ ] Cada arma tem `weaponId` no inventário e um ataque em `attacks`.',
-  '- [ ] Aumentos de Atributo em `abilityExtra` batem com talentos `asi` em `feats`.',
+  '- [ ] Todo talento com aumento de atributo tem `ab` preenchido (e nada disso repetido em `abilityExtra`).',
   '- [ ] Quantidade de talentos e Estilos de Luta dentro das vagas do nível, com pré-requisitos atendidos.',
-  '- [ ] Maestrias (`mastery`) dentro do limite da classe e só em armas com proficiência.', '');
+  '- [ ] Maestrias (`mastery`) dentro do limite da classe e só em armas com proficiência.',
+  '- [ ] Multiclasse: pré-requisitos atendidos, soma dos níveis ≤ 20, sem classes repetidas, e cada magia de classe com o `classId` certo.', '');
 
 const ex = D.newSheet();
 Object.assign(ex, { id: '', createdAt: 0, updatedAt: 0, name: 'Exemplo', level: 1, species: 'elf', speciesChoices: { lineage: 'high', keen: 'perception' },

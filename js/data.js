@@ -200,7 +200,7 @@ const FEATS = [
   { id: 'fs-twf', name: 'Estilo: Duas Armas', cat: 'Estilo de Luta', desc: 'Some o modificador ao dano do ataque extra da propriedade Leve.' },
   { id: 'fs-unarmed', name: 'Estilo: Luta Desarmada', cat: 'Estilo de Luta', desc: 'Ataque Desarmado 1d6 + FOR (1d8 sem armas/escudo); 1d4 a criatura agarrada.' },
   // Gerais (nível 4+)
-  { id: 'asi', name: 'Aumento no Valor de Atributo', cat: 'Geral', desc: '+2 em um atributo ou +1 em dois (aplique em "Bônus extra" dos atributos).' },
+  { id: 'asi', name: 'Aumento no Valor de Atributo', cat: 'Geral', desc: '+2 em um atributo ou +1 em dois (até 20; aplicado automaticamente).' },
   { id: 'actor', name: 'Ator', cat: 'Geral', desc: '+1 CAR. Vantagem em Enganação/Atuação ao se passar por outro; imita sons.' },
   { id: 'athlete', name: 'Atleta', cat: 'Geral', desc: '+1 FOR ou DES. Deslocamento de escalada; levantar gasta 1,5 m; salto com corrida após 1,5 m.' },
   { id: 'charger', name: 'Investida', cat: 'Geral', desc: '+1 FOR ou DES. Disparada +3 m; ataque após mover 3 m em linha reta: +1d8 ou empurrar 3 m.' },
@@ -228,7 +228,7 @@ const FEATS = [
   { id: 'piercer', name: 'Perfurador', cat: 'Geral', desc: '+1 FOR ou DES. Rerola um dado de dano Perfurante; crítico +1 dado.' },
   { id: 'poisoner', name: 'Envenenador', cat: 'Geral', desc: '+1 DES ou INT. Ignora resistência a Veneno; prepara venenos.' },
   { id: 'polearm-master', name: 'Mestre de Armas de Haste', cat: 'Geral', desc: '+1 FOR ou DES. Ataque bônus com o cabo (1d4); ataque de oportunidade ao entrar no alcance.' },
-  { id: 'resilient', name: 'Resiliente', cat: 'Geral', desc: '+1 em um atributo e proficiência na salvaguarda dele (marque a salvaguarda).' },
+  { id: 'resilient', name: 'Resiliente', cat: 'Geral', desc: '+1 em um atributo e proficiência na salvaguarda dele (aplicados automaticamente).' },
   { id: 'ritual-caster', name: 'Conjurador Ritualístico', cat: 'Geral', desc: '+1 INT, SAB ou CAR. Magias de ritual preparadas; ritual rápido 1x/descanso longo.' },
   { id: 'sentinel', name: 'Sentinela', cat: 'Geral', desc: '+1 FOR ou DES. Ataques de oportunidade param movimento; reage a ataques em aliados.' },
   { id: 'shadow-touched', name: 'Tocado pelas Sombras', cat: 'Geral', desc: '+1 INT, SAB ou CAR. Invisibilidade + uma magia de 1º nível de Ilusão/Necromancia.' },
@@ -257,6 +257,23 @@ const FEATS = [
   { id: 'boon-truesight', name: 'Dádiva da Visão Verdadeira', cat: 'Dádiva Épica', desc: '+1 em atributo (máx. 30). Visão Verdadeira 18 m.' },
 ];
 const FEAT = Object.fromEntries(FEATS.map(f => [f.id, f]));
+
+// Aumento de atributo concedido por cada talento, lido do próprio texto ("+1 FOR ou DES", "+1 em qualquer atributo"...).
+// asi = Aumento no Valor de Atributo (+2 em um ou +1 em dois); from = atributos permitidos; max = teto (20; 30 nas Dádivas).
+const FEAT_AB = (() => {
+  const SHORT = { FOR: 'str', DES: 'dex', CON: 'con', INT: 'int', SAB: 'wis', CAR: 'cha' };
+  const ALL = ['str', 'dex', 'con', 'int', 'wis', 'cha'];
+  const out = {};
+  for (const f of FEATS) {
+    const max = /máx\. 30/.test(f.desc) ? 30 : 20;
+    if (f.id === 'asi') { out[f.id] = { asi: true, from: ALL, max }; continue; }
+    const m = /^\+1 (em (?:um|qualquer) atributo|em atributo|((?:FOR|DES|CON|INT|SAB|CAR)(?:, | ou )?)+)/.exec(f.desc);
+    if (!m) continue;
+    const from = m[2] ? m[1].split(/, | ou /).map(x => SHORT[x.trim()]).filter(Boolean) : ALL;
+    out[f.id] = { asi: false, from, max };
+  }
+  return out;
+})();
 
 // Pré-requisitos dos talentos gerais (2024), além do nível 4:
 // ab = algum destes atributos com 13+; train = treinamento em armadura/escudo; caster = ter Conjuração ou Magia de Pacto
@@ -1112,6 +1129,23 @@ const CLASSES = [
   },
 ];
 const CLASS = Object.fromEntries(CLASSES.map(c => [c.id, c]));
+
+// Multiclasse (2024): pré-requisito = atributo principal 13+ (all = todos; any = pelo menos um)
+// e as proficiências que a classe concede quando NÃO é a classe inicial.
+const MULTICLASS = {
+  barbarian: { req: { all: ['str'] }, armor: ['shield'], weapons: ['martial'] },
+  bard: { req: { all: ['cha'] }, armor: ['light'], skills: 1, skillList: 'any', tools: '1 Instrumento Musical' },
+  cleric: { req: { all: ['wis'] }, armor: ['light', 'medium', 'shield'] },
+  druid: { req: { all: ['wis'] }, armor: ['light', 'shield'] },
+  fighter: { req: { any: ['str', 'dex'] }, armor: ['light', 'medium', 'shield'], weapons: ['martial'] },
+  monk: { req: { all: ['dex', 'wis'] } },
+  paladin: { req: { all: ['str', 'cha'] }, armor: ['light', 'medium', 'shield'], weapons: ['martial'] },
+  ranger: { req: { all: ['dex', 'wis'] }, armor: ['light', 'medium', 'shield'], weapons: ['martial'], skills: 1, skillList: 'class' },
+  rogue: { req: { all: ['dex'] }, armor: ['light'], skills: 1, skillList: 'class', tools: 'Ferramentas de Ladrão' },
+  sorcerer: { req: { all: ['cha'] } },
+  warlock: { req: { all: ['cha'] }, armor: ['light'] },
+  wizard: { req: { all: ['int'] } },
+};
 const SPECIE = Object.fromEntries(SPECIES.map(s => [s.id, s]));
 const BACKGROUND = Object.fromEntries(BACKGROUNDS.map(b => [b.id, b]));
 

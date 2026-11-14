@@ -24,6 +24,15 @@
       "subclass": "",
       "classChoices": {},
       "classSkills": [],
+      "multiclass": [
+        {
+          "classId": "",
+          "level": 0,
+          "subclass": "",
+          "classChoices": {},
+          "classSkills": []
+        }
+      ],
       "abilityMethod": "",
       "abilities": {
         "str": 0,
@@ -88,6 +97,7 @@
           "id": "",
           "cat": "",
           "source": "",
+          "classId": "",
           "name": "",
           "level": 0,
           "school": "",
@@ -146,7 +156,8 @@
           "featId": "",
           "note": "",
           "name": "",
-          "desc": ""
+          "desc": "",
+          "ab": {}
         }
       ],
       "languages": [
