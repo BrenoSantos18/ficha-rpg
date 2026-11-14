@@ -6,7 +6,7 @@ const root = path.join(__dirname, '..');
 const ctx = { console, Math, Date, JSON, Object, Array, String, Number, Set };
 vm.createContext(ctx);
 for (const f of ['js/data.js', 'js/spells.js', 'js/rules.js']) vm.runInContext(fs.readFileSync(path.join(root, f), 'utf8'), ctx);
-const D = vm.runInContext(`({ ABILITIES, SKILLS, SK, AB, ALIGNMENTS, LANGUAGES, CONDITIONS, SPECIES, BACKGROUNDS, CLASSES, FEATS, FEAT,
+const D = vm.runInContext(`({ FEAT_REQ, ABILITIES, SKILLS, SK, AB, ALIGNMENTS, LANGUAGES, CONDITIONS, SPECIES, BACKGROUNDS, CLASSES, FEATS, FEAT,
   WEAPONS, ARMORS, ARMOR_TYPE_NAME, SPELLS, COINS, FULL_SLOTS, PREP_THIRD, XP_TABLE, POINT_BUY_COST, STANDARD_ARRAY, SPELL_SCHOOLS, newSheet, steps })`, ctx);
 // Itens comuns (lista de sugestões do app, com peso em libras)
 const appSrc = fs.readFileSync(path.join(root, 'js/app.js'), 'utf8');
@@ -133,7 +133,7 @@ for (const c of D.CLASSES) {
     `- Dado de Vida d${c.hd} · Salvaguardas: ${c.saves.map(a => D.AB[a].short).join(', ')} · Armaduras: ${c.armor.map(a => a === 'shield' ? 'Escudos' : D.ARMOR_TYPE_NAME[a]).join(', ') || 'nenhuma'} · Armas: ${c.weapons.map(w => weaponTrain[w]).join(', ')}`,
     `- \`classSkills\`: escolha **${c.skillCount}** de ${c.skillList === 'any' ? 'qualquer perícia' : c.skillList.map(code).join(', ')}`);
   if (c.expertise) out(`- Especializações (\`skillProf\` = 2): ${[1, 2, 6, 9].map(l => `nível ${l}: ${c.expertise(l)}`).filter((x, i, a) => a.indexOf(x) === i).join(' · ')}`);
-  if (c.masteryCount) out(`- Maestria em armas (\`mastery\`): ${[1, 4, 10, 16].map(l => `nível ${l}: ${c.masteryCount(l)}`).join(' · ')}`);
+  if (c.masteryCount) out(`- Maestria em armas (\`mastery\`, só em armas com proficiência e que estejam em \`attacks\`): ${[1, 4, 10, 16].map(l => `nível ${l}: ${c.masteryCount(l)}`).join(' · ')}`);
   for (const ch of c.choices || []) out(`- \`classChoices.${ch.key}\` (${ch.label}): ${ch.options.map(o => `${code(o.id)} = ${o.name}`).join('; ')}`);
   out(`- Subclasses (nível 3+): ${c.subclasses.map(s => `${code(s.id)} = ${s.name}`).join('; ')}`, '');
 }
@@ -157,10 +157,18 @@ out('## 7. Talentos (`feats`)', '',
   'Formato de cada item: `{ "id": "", "featId": "alert", "note": "Nível 4", "name": "", "desc": "" }`.',
   '- `featId`: um código da tabela abaixo. `note`: de onde veio (ex.: "Nível 4").',
   '- Talento inventado/homebrew: deixe `featId` vazio e preencha `name` e `desc`.',
-  '- Pré-requisitos: Origem = qualquer nível; Geral = nível 4+; Estilo de Luta = Guerreiro 1+, Paladino 2+ ou Patrulheiro 2+; Dádiva Épica = nível 19+.',
-  '- O talento do antecedente e o do Humano (`speciesChoices.versatile`) **não** entram aqui.', '',
-  '| Código | Nome | Categoria | Efeito |', '|---|---|---|---|',
-  ...D.FEATS.map(f => `| ${code(f.id)} | ${f.name} | ${f.cat} | ${f.desc.replace(/\|/g, '/')} |`), '');
+  '- O talento do antecedente e o do Humano (`speciesChoices.versatile`) **não** entram aqui e não ocupam vaga.',
+  '- **Vagas de talento** (Geral, Origem, Aumento de Atributo ou Dádiva Épica): uma em cada nível 4, 8, 12, 16 e 19; Guerreiro também 6 e 14; Ladino também 10. Ex.: Guerreiro nível 6 = 2 talentos; Mago nível 3 = nenhum.',
+  '- **Vagas de Estilo de Luta**: Guerreiro 1 (Campeão nível 7+: 2); Paladino e Patrulheiro 1 a partir do nível 2; demais classes 0.',
+  '- Não repita talentos, exceto `asi`, `skilled`, `mi-cleric`, `mi-druid`, `mi-wizard` e `elemental-adept`.',
+  '- O app trava talentos sem vaga ou sem pré-requisito e mostra aviso nos que já estiverem na ficha fora da regra.', '',
+  '| Código | Nome | Categoria | Pré-requisito | Efeito |', '|---|---|---|---|---|',
+  ...D.FEATS.map(f => {
+    const base = { 'Origem': '—', 'Geral': 'Nível 4+', 'Estilo de Luta': 'Estilo de Luta (classe)', 'Dádiva Épica': 'Nível 19+' }[f.cat];
+    const r = D.FEAT_REQ[f.id] || {};
+    const extra = [r.ab && r.ab.map(a => D.AB[a].short).join(' ou ') + ' 13+', r.train && 'treinamento em ' + (r.train === 'shield' ? 'escudos' : 'armadura ' + D.ARMOR_TYPE_NAME[r.train].toLowerCase()), r.caster && 'Conjuração ou Magia de Pacto'].filter(Boolean);
+    return `| ${code(f.id)} | ${f.name} | ${f.cat} | ${[base].concat(extra).join('; ')} | ${f.desc.replace(/\|/g, '/')} |`;
+  }), '');
 
 // Equipamento
 out('## 8. Equipamento', '',
@@ -214,7 +222,9 @@ out('## 11. Checklist antes de importar', '',
   '- [ ] Truques e magias preparadas `"class"` dentro da tabela; nenhuma magia acima do nível máximo.',
   '- [ ] `hp.current` é `null`.',
   '- [ ] Cada arma tem `weaponId` no inventário e um ataque em `attacks`.',
-  '- [ ] Aumentos de Atributo em `abilityExtra` batem com talentos `asi` em `feats`.', '');
+  '- [ ] Aumentos de Atributo em `abilityExtra` batem com talentos `asi` em `feats`.',
+  '- [ ] Quantidade de talentos e Estilos de Luta dentro das vagas do nível, com pré-requisitos atendidos.',
+  '- [ ] Maestrias (`mastery`) dentro do limite da classe e só em armas com proficiência.', '');
 
 const ex = D.newSheet();
 Object.assign(ex, { id: '', createdAt: 0, updatedAt: 0, name: 'Exemplo', level: 1, species: 'elf', speciesChoices: { lineage: 'high', keen: 'perception' },

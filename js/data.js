@@ -192,7 +192,7 @@ const FEATS = [
   { id: 'fs-archery', name: 'Estilo: Arquearia', cat: 'Estilo de Luta', desc: '+2 nas jogadas de ataque com armas à distância (já somado).' },
   { id: 'fs-blind', name: 'Estilo: Combate às Cegas', cat: 'Estilo de Luta', desc: 'Percepção às Cegas 3 m.' },
   { id: 'fs-defense', name: 'Estilo: Defesa', cat: 'Estilo de Luta', desc: '+1 na CA enquanto usar armadura (já somado).' },
-  { id: 'fs-dueling', name: 'Estilo: Duelismo', cat: 'Estilo de Luta', desc: '+2 de dano com arma corpo a corpo em uma mão e nenhuma outra arma.' },
+  { id: 'fs-dueling', name: 'Estilo: Duelismo', cat: 'Estilo de Luta', desc: '+2 de dano com arma corpo a corpo em uma mão e nenhuma outra arma (aparece como lembrete nos ataques com armas de uma mão ou versáteis).' },
   { id: 'fs-gwf', name: 'Estilo: Armas Grandes', cat: 'Estilo de Luta', desc: 'Trate 1 e 2 nos dados de dano de armas de Duas Mãos/Versáteis como 3.' },
   { id: 'fs-interception', name: 'Estilo: Interceptação', cat: 'Estilo de Luta', desc: 'Reação: reduz dano a um aliado próximo em 1d10 + BP.' },
   { id: 'fs-protection', name: 'Estilo: Proteção', cat: 'Estilo de Luta', desc: 'Reação com escudo: impõe Desvantagem a um ataque contra aliado próximo.' },
@@ -257,6 +257,21 @@ const FEATS = [
   { id: 'boon-truesight', name: 'Dádiva da Visão Verdadeira', cat: 'Dádiva Épica', desc: '+1 em atributo (máx. 30). Visão Verdadeira 18 m.' },
 ];
 const FEAT = Object.fromEntries(FEATS.map(f => [f.id, f]));
+
+// Pré-requisitos dos talentos gerais (2024), além do nível 4:
+// ab = algum destes atributos com 13+; train = treinamento em armadura/escudo; caster = ter Conjuração ou Magia de Pacto
+const FEAT_REQ = {
+  'actor': { ab: ['cha'] }, 'athlete': { ab: ['str', 'dex'] }, 'charger': { ab: ['str', 'dex'] },
+  'crossbow-expert': { ab: ['dex'] }, 'crusher': { ab: ['str', 'con'] }, 'defensive-duelist': { ab: ['dex'] },
+  'dual-wielder': { ab: ['str', 'dex'] }, 'elemental-adept': { caster: true }, 'grappler': { ab: ['str', 'dex'] },
+  'great-weapon-master': { ab: ['str'] }, 'heavily-armored': { train: 'medium' }, 'heavy-armor-master': { train: 'heavy' },
+  'inspiring-leader': { ab: ['wis', 'cha'] }, 'keen-mind': { ab: ['int'] }, 'medium-armor-master': { train: 'medium' },
+  'moderately-armored': { train: 'light' }, 'observant': { ab: ['int', 'wis'] }, 'piercer': { ab: ['str', 'dex'] },
+  'polearm-master': { ab: ['str', 'dex'] }, 'ritual-caster': { ab: ['int', 'wis', 'cha'] }, 'sentinel': { ab: ['str', 'dex'] },
+  'sharpshooter': { ab: ['dex'] }, 'shield-master': { train: 'shield' }, 'skulker': { ab: ['dex'] },
+  'slasher': { ab: ['str', 'dex'] }, 'speedy': { ab: ['dex', 'con'] }, 'spell-sniper': { caster: true },
+  'war-caster': { caster: true }, 'weapon-master': { ab: ['str', 'dex'] },
+};
 
 // ---------------------------------------------------------------- ANTECEDENTES
 const BACKGROUNDS = [

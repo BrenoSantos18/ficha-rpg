@@ -389,7 +389,7 @@ function renderPreview(s, d) {
   const attacks = s.attacks.map((atk, i) => {
     const c = attackCalc(d, s, atk);
     const name = atk.name || (c.w ? c.w.name : 'Ataque');
-    return `<tr><td><b>${esc(name)}</b>${c.w ? `<br><small class="muted">${esc(c.w.props.join(', '))}${d.masteryMax && s.mastery[c.w.id] ? ` · Maestria: ${c.w.mastery}` : ''}</small>` : ''}</td>
+    return `<tr><td><b>${esc(name)}</b>${c.w ? `<br><small class="muted">${esc(c.w.props.join(', '))}${d.masteryMax && s.mastery[c.w.id] ? ` · Maestria: ${c.w.mastery}` : ''}</small>` : ''}${c.tags.length ? `<br><small class="ok">${c.tags.map(esc).join(' · ')}</small>` : ''}${c.notes.length ? `<br><small class="atk-note">ⓘ ${c.notes.map(esc).join(' · ')}</small>` : ''}</td>
       <td><button class="btn sm roll" data-action="rollAttack" data-i="${i}">${fmt(c.hit)}</button></td>
       <td><button class="btn sm roll dmg" data-action="rollDmg" data-i="${i}">${esc(c.dmg)}${c.extra ? ' + ' + esc(c.extra) : ''}</button> <small class="muted">${esc(c.dtype)}</small></td></tr>`;
   }).join('');
@@ -544,7 +544,8 @@ function renderBuild(s, d) {
       const val = s.speciesChoices[ch.key] || '';
       let options;
       if (ch.skillAny) options = SKILLS.map(x => opt(x.id, x.name, val)).join('');
-      else if (ch.featOrigin) options = FEATS.filter(f => f.cat === 'Origem').map(f => opt(f.id, f.name, val)).join('');
+      else if (ch.featOrigin) options = FEATS.filter(f => f.cat === 'Origem' && (f.id !== bg.feat || FEAT_REPEATABLE.has(f.id) || f.id === val))
+        .map(f => opt(f.id, f.name + (f.id === bg.feat && !FEAT_REPEATABLE.has(f.id) ? ' (já vem do antecedente)' : ''), val)).join('');
       else options = ch.options.map(o => opt(o.id, o.name, val)).join('');
       speciesCard += `<label class="field">${ch.label}<select data-bind="speciesChoices.${ch.key}">${opt('', 'Escolha…', val)}${options}</select></label>`;
       if (ch.featOrigin && val) speciesCard += `<p class="small muted">${esc(FEAT[val].desc)}</p>`;
@@ -724,7 +725,7 @@ function addWeaponTo(s, weaponId, { inventory = true, attack = true } = {}) {
 }
 
 function renderCombat(s, d) {
-  const masteryUsed = Object.values(s.mastery).filter(Boolean).length;
+  const masteryUsed = d.masteryUsed;
   const attacks = s.attacks.map((atk, i) => {
     const c = attackCalc(d, s, atk);
     const w = c.w;
@@ -740,7 +741,13 @@ function renderCombat(s, d) {
       <div class="atk-meta small">
         ${w ? `<span>${w.props.join(', ') || 'sem propriedades'}</span>` : ''}
         ${!c.prof ? '<span class="bad-text">sem proficiência</span>' : ''}
-        ${w && d.masteryMax ? `<label class="chk-inline" title="${esc(MASTERY_DESC[w.mastery])}"><input type="checkbox" data-bind="mastery.${w.id}" ${s.mastery[w.id] ? 'checked' : ''}> Maestria: <b>${w.mastery}</b></label>` : w ? `<span class="muted" title="${esc(MASTERY_DESC[w.mastery])}">Maestria: ${w.mastery}</span>` : ''}
+        ${c.tags.map(t => `<span class="ok">✓ ${esc(t)}</span>`).join('')}
+        ${c.notes.map(t => `<span class="atk-note">ⓘ ${esc(t)}</span>`).join('')}
+        ${w && d.masteryMax ? (() => {
+          const on = !!s.mastery[w.id];
+          const block = on ? '' : !c.prof ? 'sem proficiência' : masteryUsed >= d.masteryMax ? 'limite atingido' : '';
+          return `<label class="chk-inline${block ? ' dis' : ''}" title="${esc(block ? `Maestria indisponível: ${block}` : MASTERY_DESC[w.mastery])}"><input type="checkbox" data-bind="mastery.${w.id}" ${on ? 'checked' : ''} ${block ? 'disabled' : ''}> Maestria: <b>${w.mastery}</b>${block ? ` <small class="muted">(${block})</small>` : ''}${on && !c.prof ? ' <small class="bad-text">⚠ sem proficiência</small>' : ''}</label>`;
+        })() : ''}
       </div>
       <details class="atk-opts"><summary>Ajustes</summary><div class="row gap wrap small">
         <label>Atributo <select data-bind="attacks.${i}.ability">${opt('auto', 'Automático (' + AB[c.ab].short + ')', atk.ability || 'auto')}${ABILITIES.map(a => opt(a.id, a.short, atk.ability)).join('')}</select></label>
@@ -1186,27 +1193,49 @@ function renderInventory(s, d) {
 // Pré-requisitos dos talentos (regras 2024)
 const FEAT_REPEATABLE = new Set(['asi', 'skilled', 'mi-cleric', 'mi-druid', 'mi-wizard', 'elemental-adept']);
 const FEAT_PREREQ = { 'Origem': '', 'Estilo de Luta': 'Característica Estilo de Luta (Guerreiro 1, Paladino 2, Patrulheiro 2)', 'Geral': 'Nível 4+', 'Dádiva Épica': 'Nível 19+' };
-function featBlocked(f, s, d) {
-  if (!FEAT_REPEATABLE.has(f.id) && d.feats.includes(f.id)) return 'já possui';
-  if (f.cat === 'Geral' && d.level < 4) return 'nível 4+';
-  if (f.cat === 'Dádiva Épica' && d.level < 19) return 'nível 19+';
-  if (f.cat === 'Estilo de Luta') {
-    const lvl = { fighter: 1, paladin: 2, ranger: 2 }[d.cls.id];
-    if (!lvl || d.level < lvl) return 'requer Estilo de Luta';
+// Pré-requisito do talento (nível, característica, atributo, treinamento, conjuração). '' = atende.
+function featPrereqFail(f, d) {
+  if (f.cat === 'Geral' && d.level < 4) return 'requer nível 4';
+  if (f.cat === 'Dádiva Épica' && d.level < 19) return 'requer nível 19';
+  if (f.cat === 'Estilo de Luta' && !d.styleSlots) return 'requer a característica Estilo de Luta';
+  const r = FEAT_REQ[f.id];
+  if (r) {
+    if (r.ab && !r.ab.some(a => d.scores[a] >= 13)) return `requer ${r.ab.map(a => AB[a].short).join(' ou ')} 13`;
+    if (r.train && !d.armorTrain.has(r.train)) return `requer treinamento em ${r.train === 'shield' ? 'escudos' : 'armadura ' + ARMOR_TYPE_NAME[r.train].toLowerCase()}`;
+    if (r.caster && !d.casterType) return 'requer Conjuração ou Magia de Pacto';
   }
   return '';
 }
-function featPreviewHtml(id) {
-  const f = FEAT[id]; if (!f) return '';
-  const pre = FEAT_PREREQ[f.cat];
+// Pode adicionar agora? Considera repetição, pré-requisito e vagas. '' = pode.
+function featBlocked(f, s, d) {
+  if (!FEAT_REPEATABLE.has(f.id) && d.feats.includes(f.id)) return 'já possui';
+  const pre = featPrereqFail(f, d); if (pre) return pre;
+  if (f.cat === 'Estilo de Luta') { if (d.featUse.style >= d.styleSlots) return 'sem vaga de Estilo de Luta'; }
+  else if (d.featUse.general >= d.featSlots) return d.nextFeatLevel ? `sem vaga — próxima no nível ${d.nextFeatLevel}` : 'sem vaga de talento';
+  return '';
+}
+function featReqText(f) {
+  const parts = [FEAT_PREREQ[f.cat]].filter(Boolean);
+  const r = FEAT_REQ[f.id];
+  if (r && r.ab) parts.push(r.ab.map(a => AB[a].short).join(' ou ') + ' 13+');
+  if (r && r.train) parts.push('treinamento em ' + (r.train === 'shield' ? 'escudos' : 'armadura ' + ARMOR_TYPE_NAME[r.train].toLowerCase()));
+  if (r && r.caster) parts.push('Conjuração ou Magia de Pacto');
+  return parts.join(' · ');
+}
+function featPreviewHtml(id, s, d) {
+  const f = FEAT[id];
+  if (!f) return `<p class="small muted">Nenhum talento disponível agora${d && d.nextFeatLevel ? ` — a próxima vaga de talento é no nível ${d.nextFeatLevel}` : ''}.</p>`;
+  const pre = featReqText(f);
+  const why = s && d ? featBlocked(f, s, d) : '';
   return `<div class="fp-head"><b>${esc(f.name)}</b> <span class="badge">${esc(f.cat)}</span></div>
     ${pre ? `<div class="small muted">Pré-requisito: ${esc(pre)}</div>` : ''}
+    ${why ? `<div class="small bad-text">Indisponível: ${esc(why)}</div>` : ''}
     <p>${esc(f.desc)}</p>${FEAT_REPEATABLE.has(f.id) ? '<div class="small muted">Pode ser escolhido mais de uma vez.</div>' : ''}`;
 }
 function updateFeatPreview() {
   const sel = $('#featNew'); if (!sel) return;
   ui.featSel = sel.value;
-  $('#featPreview').innerHTML = featPreviewHtml(sel.value);
+  const s = active(); $('#featPreview').innerHTML = featPreviewHtml(sel.value, s, s && compute(s));
 }
 
 // ---------------------------------------------------------------- Características
@@ -1229,15 +1258,27 @@ function renderFeatures(s, d) {
     </div>
     <div class="card">
       <h3>Talentos</h3>
-      ${featList.map(x => `<div class="feature"><div><b>${esc(x.f.name)}</b> ${x.src ? `<span class="badge">${esc(x.src)}</span>` : ''}${x.i != null ? ` <button class="icon-btn" data-action="delFeat" data-i="${x.i}" title="Remover">🗑</button>` : ''}</div>
-        ${x.custom ? `<textarea data-bind="feats.${x.i}.desc" rows="2" placeholder="Descrição">${esc(x.raw.desc || '')}</textarea>` : `<p>${esc(x.f.desc)}</p>`}</div>`).join('') || '<p class="muted small">Nenhum talento.</p>'}
+      <div class="skill-counters">
+        ${counter('Talentos de nível', d.featUse.general, d.featSlots, d.nextFeatLevel ? `Próxima vaga no nível ${d.nextFeatLevel}` : 'Todas as vagas liberadas')}
+        ${d.styleSlots || d.featUse.style ? counter('Estilo de Luta', d.featUse.style, d.styleSlots, 'Vagas de Estilo de Luta da classe') : ''}
+      </div>
+      <p class="small muted">O talento do antecedente${s.species === 'human' ? ' e o do Humano (Versátil)' : ''} não ocupam vaga.${d.nextFeatLevel ? ` Próxima vaga de talento: nível ${d.nextFeatLevel}.` : ''}</p>
+      ${featList.map(x => {
+        const issue = x.raw && x.raw.featId && FEAT[x.raw.featId] ? featPrereqFail(FEAT[x.raw.featId], d) : '';
+        return `<div class="feature"><div><b>${esc(x.f.name)}</b> ${x.src ? `<span class="badge">${esc(x.src)}</span>` : ''}${x.i != null ? ` <button class="icon-btn" data-action="delFeat" data-i="${x.i}" title="Remover">🗑</button>` : ''}</div>
+        ${issue ? `<div class="small bad-text">⚠ Pré-requisito não atendido: ${esc(issue)}</div>` : ''}
+        ${x.custom ? `<textarea data-bind="feats.${x.i}.desc" rows="2" placeholder="Descrição">${esc(x.raw.desc || '')}</textarea>` : `<p>${esc(x.f.desc)}</p>`}</div>`;
+      }).join('') || '<p class="muted small">Nenhum talento.</p>'}
       <div class="field"><span>Adicionar talento</span>
         <div class="row gap wrap"><select id="featNew">${cats.map(c => `<optgroup label="${c}">${FEATS.filter(f => f.cat === c).map(f => {
           const why = featBlocked(f, s, d);
           return `<option value="${f.id}"${why ? ' disabled' : ''}${f.id === ui.featSel && !why ? ' selected' : ''}>${esc(f.name)}${why ? ` — ${why}` : ''}</option>`;
         }).join('')}</optgroup>`).join('')}</select>
         <input id="featNote" placeholder="Origem (ex: Nível 4)" class="w-dice"><button class="btn sm primary" data-action="addFeat">Adicionar</button></div>
-        <div id="featPreview" class="feat-preview">${featPreviewHtml(ui.featSel && !featBlocked(FEAT[ui.featSel], s, d) ? ui.featSel : FEATS.find(f => !featBlocked(f, s, d)).id)}</div>
+        <div id="featPreview" class="feat-preview">${(() => {
+          const first = FEATS.find(f => !featBlocked(f, s, d));
+          return featPreviewHtml(ui.featSel && FEAT[ui.featSel] && !featBlocked(FEAT[ui.featSel], s, d) ? ui.featSel : first && first.id, s, d);
+        })()}</div>
         <div class="row gap wrap"><input id="featCustom" placeholder="Talento personalizado"><button class="btn sm" data-action="addCustomFeat">Adicionar personalizado</button></div>
         <p class="small muted">Lembre-se de aplicar aumentos de atributo dos talentos em "Extra" na aba Construção.</p>
       </div>
@@ -1722,6 +1763,10 @@ document.addEventListener('change', (ev) => {
   const el = ev.target;
   const s = active();
   if (!s) return;
+  if (el.dataset.bind && el.dataset.bind.startsWith('mastery.') && el.checked) {
+    const d = compute(s);
+    if (d.masteryUsed >= d.masteryMax) { el.checked = false; toast(`Limite de ${d.masteryMax} maestrias no nível ${d.level}.`, 'bad'); return; }
+  }
   if (el.dataset.prep != null) {
     const sp = s.spells[+el.dataset.prep]; const d = compute(s);
     if (el.checked) {

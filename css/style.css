@@ -205,6 +205,7 @@ main { max-width: 1280px; margin: 0 auto; padding: 16px; }
 .chk.on { border-color: var(--gold); background: #3a2d17; }
 .chk.dis { opacity: .45; cursor: not-allowed; }
 .chk-inline { display: inline-flex; align-items: center; gap: 5px; cursor: pointer; }
+.chk-inline.dis { opacity: .6; cursor: not-allowed; }
 .radio { display: flex; align-items: center; gap: 5px; cursor: pointer; }
 .traits { padding-left: 18px; margin: 10px 0 0; }
 .traits li { margin: 4px 0; }
@@ -264,6 +265,7 @@ main { max-width: 1280px; margin: 0 auto; padding: 16px; }
 .atk-opts summary, details summary { cursor: pointer; color: var(--muted); font-size: 12px; margin-top: 4px; }
 .atk-opts .row { margin-top: 6px; }
 .atk-opts label, .spell details label { display: flex; align-items: center; gap: 4px; }
+.atk-note { color: var(--gold); }
 .add-row { margin-top: 10px; padding-top: 10px; border-top: 1px dashed var(--line); }
 .stat-chips { display: flex; gap: 8px; flex-wrap: wrap; margin-bottom: 10px; }
 .stat-chip { display: flex; flex-direction: column; padding: 4px 12px; border: 1px solid var(--line); border-radius: 8px; background: var(--bg2); }

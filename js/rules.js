@@ -67,6 +67,22 @@ function featIds(s) {
   return ids;
 }
 
+// Vagas de talento (2024): níveis de Aumento de Atributo (+ Guerreiro 6/14, Ladino 10; 19 = Dádiva Épica)
+// e vagas de Estilo de Luta. O talento do antecedente e o do Humano (Versátil) não ocupam vaga.
+function featSlotsOf(s, cls, subId, level) {
+  const asiLevels = [4, 8, 12, 16, 19].concat(cls.id === 'fighter' ? [6, 14] : [], cls.id === 'rogue' ? [10] : []).sort((a, b) => a - b);
+  let styleSlots = 0;
+  if (cls.id === 'fighter') styleSlots = 1 + (subId === 'champion' && level >= 7 ? 1 : 0);
+  if ((cls.id === 'paladin' || cls.id === 'ranger') && level >= 2) styleSlots = 1;
+  const featUse = { general: 0, style: 0 };
+  for (const f of s.feats || []) {
+    const F = f.featId && FEAT[f.featId];
+    if (!F) continue; // talentos personalizados ficam por conta do jogador
+    if (F.cat === 'Estilo de Luta') featUse.style++; else featUse.general++;
+  }
+  return { featSlots: asiLevels.filter(l => l <= level).length, nextFeatLevel: asiLevels.find(l => l > level) || null, styleSlots, featUse };
+}
+
 function compute(s) {
   const cls = CLASS[s.classId] || NULL_CLASS;
   const sp = SPECIE[s.species] || NULL_SPECIES;
@@ -290,6 +306,9 @@ function compute(s) {
     resources, features, feats, has, resist, darkvision, autoLangs, capacity, weight, wealth,
     passive: { perception: 10 + percep, insight: 10 + skills.insight.bonus, investigation: 10 + skills.investigation.bonus },
     masteryMax: cls.masteryCount ? cls.masteryCount(level) : 0,
+    // Maestrias marcadas em armas que estão nos ataques
+    masteryUsed: Object.keys(s.mastery || {}).filter(id => s.mastery[id] && (s.attacks || []).some(a => a.weaponId === id)).length,
+    ...featSlotsOf(s, cls, subId, level),
   };
 }
 
@@ -324,7 +343,9 @@ function attackCalc(d, s, atk) {
   else prof = unarmed ? true : w ? weaponProficient(d, w) : true;
   const magic = +atk.magic || 0;
   let hit = mod + (prof ? d.pb : 0) + magic + (+atk.hitBonus || 0);
-  if (w && w.kind === 'r' && d.has('fs-archery')) hit += 2;
+  const bonusTags = [];   // estilos de luta já somados (mostrados no ataque)
+  const notes = [];       // lembretes condicionais (não alteram o número)
+  if (w && w.kind === 'r' && d.has('fs-archery')) { hit += 2; bonusTags.push('Arquearia +2 no acerto'); }
 
   let die;
   if (unarmed) {
@@ -338,10 +359,14 @@ function attackCalc(d, s, atk) {
       if (m && +m[1] * +m[2] < ma) die = '1d' + ma;
     }
   } else die = atk.dmg || '1d4';
+  // Duelismo: só lembrete — depende de como a arma está sendo empunhada no momento
+  if (w && w.kind === 'm' && d.has('fs-dueling') && !w.props.some(p => p.startsWith('Duas Mãos'))) {
+    notes.push('Duelismo: +2 de dano se empunhar com uma mão e sem outra arma');
+  }
   const dmgMod = mod + magic + (+atk.dmgBonus || 0);
   const dmgStr = die + (dmgMod ? (dmgMod > 0 ? '+' : '') + dmgMod : '');
   const dtype = unarmed ? 'Contundente' : w ? w.dtype : (atk.dtype || '');
-  return { ab, prof, hit, dmg: dmgStr, dtype, w, extra: atk.extraDmg || '' };
+  return { ab, prof, hit, dmg: dmgStr, dtype, w, extra: atk.extraDmg || '', tags: bonusTags, notes };
 }
 
 // ---------------------------------------------------------------- Dados
